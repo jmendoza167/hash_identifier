@@ -146,6 +146,8 @@ def _shape_reason(sig: Signature, value: str) -> str:
     """Describe what about the input's shape matched this signature."""
     if _HEX_RE.fullmatch(value):
         return f"{len(value)} hexadecimal characters"
+    if value.startswith("*") and _HEX_RE.fullmatch(value[1:]):
+        return f"'*' followed by {len(value) - 1} hexadecimal characters"
     if value.startswith("$") and value.count("$") >= 2:
         parts = value.split("$")
         reason = f"starts with {sig.name} prefix ${parts[1]}$"
