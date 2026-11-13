@@ -4,14 +4,16 @@ Pipeline for one input:
 
 1. Normalize (``Result`` strips surrounding whitespace).
 2. Match the normalized value against every signature.
-3. Score each match: popularity, then any score adjustments.
+3. Score each match: popularity, then any score adjustments
+   (currently the context hint, see ``hashident.context``).
 4. Rank: score descending, then name, so output is deterministic.
 5. Label confidence and add reasons that depend on the other matches.
 
 Confidence thresholds
 ---------------------
 * Exactly one signature matches: HIGH. The shape alone pins down the format.
-* Several match: the input is genuinely ambiguous, so nothing is HIGH.
+* Several match: the input is genuinely ambiguous, so nothing is HIGH,
+  with or without a context hint.
   A candidate within ``MEDIUM_MAX_GAP`` points of the top score is MEDIUM
   (the top candidate always is); anything further behind is LOW.
 
@@ -27,7 +29,8 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from hashident.models import Candidate, Confidence, Result, Signature
+from hashident.context import context_adjustments, parse_context
+from hashident.models import Adjustment, Candidate, Confidence, Context, Result, Signature
 from hashident.signatures import SIGNATURES
 
 MEDIUM_MAX_GAP = 20.0
@@ -40,56 +43,57 @@ _MCF_COST_IDS = frozenset({"2a", "2b", "2y"})
 
 
 @dataclass(frozen=True)
-class Adjustment:
-    """A change to a candidate's score, with the reason shown to the user."""
-
-    delta: float
-    reason: str
-
-
-@dataclass(frozen=True)
 class _Scored:
     signature: Signature
     score: float
     reasons: tuple[str, ...]
 
 
-def identify(raw: str, *, signatures: Sequence[Signature] = SIGNATURES) -> Result:
+def identify(
+    raw: str,
+    context: Context | str | None = None,
+    *,
+    signatures: Sequence[Signature] = SIGNATURES,
+) -> Result:
     """Identify which hash formats ``raw`` could be, best guess first.
+
+    ``context`` is an optional hint about where the hash came from, as a
+    ``Context`` or its name (e.g. ``"windows"``, case-insensitive). An
+    unknown name raises ValueError listing the valid options.
 
     Returns a ``Result`` with no candidates for empty input or input that
     matches no known format; it does not raise for those cases.
     """
+    hint = parse_context(context)
     result = Result(raw=raw)
     value = result.normalized
     if not value:
         return result
 
     matched = [sig for sig in signatures if sig.matches(value)]
-    scored = [_score(sig, value) for sig in matched]
+    scored = [_score(sig, value, hint) for sig in matched]
     scored.sort(key=lambda s: (-s.score, s.signature.name))
 
     candidates = tuple(_to_candidate(s, scored, value) for s in scored)
     return Result(raw=raw, candidates=candidates)
 
 
-def _score(sig: Signature, value: str) -> _Scored:
+def _score(sig: Signature, value: str, context: Context | None) -> _Scored:
     """Score one matching signature: popularity plus every adjustment."""
     score = float(sig.popularity)
     reasons = [_shape_reason(sig, value)]
-    for adj in _adjustments(sig, value):
+    for adj in _adjustments(sig, value, context):
         score += adj.delta
         reasons.append(adj.reason)
     return _Scored(signature=sig, score=score, reasons=tuple(reasons))
 
 
-def _adjustments(sig: Signature, value: str) -> list[Adjustment]:
+def _adjustments(sig: Signature, value: str, context: Context | None) -> list[Adjustment]:
     """Score adjustments for one candidate.
 
     This is the single place where scores are changed beyond popularity.
-    Context hints (step 6) will return their boosts from here.
     """
-    return []
+    return context_adjustments(sig, context)
 
 
 def _to_candidate(item: _Scored, ranked: Sequence[_Scored], value: str) -> Candidate:
@@ -104,12 +108,7 @@ def _to_candidate(item: _Scored, ranked: Sequence[_Scored], value: str) -> Candi
     else:
         gap = top.score - item.score
         confidence = Confidence.MEDIUM if gap <= MEDIUM_MAX_GAP else Confidence.LOW
-        if item is top:
-            reasons.append("most common format with this shape")
-        elif gap == 0:
-            reasons.append(f"as common as {top.signature.name} with this shape")
-        else:
-            reasons.append(f"less common than {top.signature.name} with this shape")
+        reasons.append(_ranking_reason(item, top, ranked))
         why = "same length and charset" if _HEX_RE.fullmatch(value) else "same format"
         reasons.append(f"also matches {', '.join(others)}: {why}")
 
@@ -119,6 +118,28 @@ def _to_candidate(item: _Scored, ranked: Sequence[_Scored], value: str) -> Candi
         confidence=confidence,
         reasons=tuple(reasons),
     )
+
+
+def _ranking_reason(item: _Scored, top: _Scored, ranked: Sequence[_Scored]) -> str:
+    """Explain this candidate's place in the final ranking.
+
+    Popularity comparisons are always true statements about popularity;
+    when an adjustment reversed the popularity order, the reason says so.
+    """
+    pop = item.signature.popularity
+    if item is top:
+        more_popular = [s.signature.name for s in ranked if s.signature.popularity > pop]
+        if not more_popular:
+            return "most common format with this shape"
+        return f"ranked above {', '.join(more_popular)} by the context hint"
+
+    leader, top_pop = top.signature.name, top.signature.popularity
+    if pop < top_pop:
+        return f"less common than {leader} with this shape"
+    if pop == top_pop and item.score == top.score:
+        return f"as common as {leader} with this shape"
+    comparison = f"more common than {leader}" if pop > top_pop else f"as common as {leader}"
+    return f"{comparison} with this shape, but {leader} matches the context hint"
 
 
 def _shape_reason(sig: Signature, value: str) -> str:

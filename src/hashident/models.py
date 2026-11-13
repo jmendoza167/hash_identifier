@@ -71,6 +71,14 @@ class Signature:
         return self._regex.fullmatch(value) is not None
 
 
+@dataclass(frozen=True)
+class Adjustment:
+    """A change to a candidate's score, with the reason shown to the user."""
+
+    delta: float
+    reason: str
+
+
 @dataclass(frozen=True, kw_only=True)
 class Candidate:
     """One possible identification of a hash, with the evidence for it."""
