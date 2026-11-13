@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hashident"
+dynamic = ["version"]
+description = "Identify likely hash algorithms from a hash string."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Javier Mendoza" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+hashident = "hashident.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "hashident.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
