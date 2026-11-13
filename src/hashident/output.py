@@ -7,16 +7,22 @@ after its label (a hanging indent), e.g.
 
     Strength: STRONG - Salted and deliberately slow, with a tunable cost
                        factor per guess.
+
+Color is optional: layout (padding, wrapping) is always done on plain text
+first, and the ``Styler`` is applied to finished pieces afterwards. Widths
+are therefore measured in visible characters, and with ``PLAIN`` (the
+default) no escape codes are ever produced.
 """
 
 from __future__ import annotations
 
 import textwrap
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from hashident.commands import HASH_FILE, crack_commands, tool_notes
 from hashident.models import Candidate, Confidence, Context, Result
 from hashident.signatures import SIGNATURES
+from hashident.style import PLAIN, Styler
 from hashident.tips import ContextTip
 
 WIDTH = 80
@@ -32,23 +38,25 @@ _TIP_QUESTIONS: dict[Context, str] = {
 }
 
 
-def format_result(result: Result, tips: Sequence[ContextTip] = ()) -> str:
+def format_result(
+    result: Result, tips: Sequence[ContextTip] = (), style: Styler = PLAIN
+) -> str:
     """Render ``result`` (and any re-run tips) as text, without a trailing newline."""
     lines = _header(result)
     lines.append("")
 
     if not result.candidates:
-        lines += _no_match()
+        lines += _no_match(style)
         return "\n".join(lines)
 
-    lines += _table(result.candidates)
+    lines += _table(result.candidates, style)
     for rank, cand in enumerate(result.candidates, start=1):
         if cand.confidence is not Confidence.LOW:
             lines.append("")
-            lines += _details(rank, cand, result.normalized)
+            lines += _details(rank, cand, result.normalized, style)
 
     if any(c.confidence is Confidence.LOW for c in result.candidates):
-        lines += ["", "Low-confidence candidates are shown in the table only."]
+        lines += ["", style.muted("Low-confidence candidates are shown in the table only.")]
     if tips:
         lines.append("")
         for tip in tips:
@@ -56,7 +64,7 @@ def format_result(result: Result, tips: Sequence[ContextTip] = ()) -> str:
                 f"{_TIP_QUESTIONS[tip.context]} Re-run with --from "
                 f"{tip.context.value} ({tip.top.name} ranks first)"
             )
-            lines += _wrap("", "Tip: ", text)
+            lines += [style.tip(line) for line in _wrap("", "Tip: ", text)]
     return "\n".join(lines)
 
 
@@ -65,6 +73,7 @@ def _header(result: Result) -> list[str]:
     if not value:
         lines = [_label("Input") + "(empty)"]
     else:
+        # Escaping control characters also stops input from injecting ANSI codes.
         shown = _printable(value)
         if len(shown) > MAX_INPUT_CHARS:
             keep = MAX_INPUT_CHARS - len("...")
@@ -89,49 +98,76 @@ def _printable(value: str) -> str:
     )
 
 
-def _table(candidates: Sequence[Candidate]) -> list[str]:
+_Paint = Callable[[str], str]
+
+
+def _table(candidates: Sequence[Candidate], style: Styler) -> list[str]:
     header = ("#", "Format", "Confidence", "Hashcat", "John")
-    rows = [
-        (
+    rows: list[tuple[Sequence[str], Sequence[_Paint | None]]] = []
+    for rank, c in enumerate(candidates, start=1):
+        sig = c.signature
+        cells = (
             str(rank),
-            c.signature.name,
+            sig.name,
             c.confidence.name,
-            "-" if c.signature.hashcat_mode is None else str(c.signature.hashcat_mode),
-            c.signature.john_format or "-",
+            "-" if sig.hashcat_mode is None else str(sig.hashcat_mode),
+            sig.john_format or "-",
         )
-        for rank, c in enumerate(candidates, start=1)
+        paints = (
+            None,
+            style.name,
+            lambda text, level=c.confidence: style.confidence(text, level),
+            None,
+            None,
+        )
+        rows.append((cells, paints))
+
+    widths = [max(len(cell) for cell in col) for col in zip(header, *(r for r, _ in rows))]
+
+    def line(cells: Sequence[str], paints: Sequence[_Paint | None] = ()) -> str:
+        parts = []
+        for i, (cell, width) in enumerate(zip(cells, widths)):
+            paint = paints[i] if i < len(paints) else None
+            # Pad outside the color codes so padding is measured on visible text.
+            parts.append((paint(cell) if paint else cell) + " " * (width - len(cell)))
+        return "  ".join(parts).rstrip(" ")
+
+    return [
+        line(header),
+        line(["-" * w for w in widths]),
+        *(line(cells, paints) for cells, paints in rows),
     ]
-    widths = [max(len(cell) for cell in column) for column in zip(header, *rows)]
-
-    def line(cells: Sequence[str]) -> str:
-        return "  ".join(cell.ljust(w) for cell, w in zip(cells, widths)).rstrip()
-
-    return [line(header), line(["-" * w for w in widths]), *(line(r) for r in rows)]
 
 
-def _details(rank: int, cand: Candidate, value: str) -> list[str]:
+def _details(rank: int, cand: Candidate, value: str, style: Styler) -> list[str]:
     sig = cand.signature
-    lines = [f"{rank}. {sig.name} - {cand.confidence.value} confidence"]
+    level = cand.confidence
+    lines = [
+        f"{rank}. {style.name(sig.name)} - "
+        + style.confidence(f"{level.value} confidence", level)
+    ]
 
     lines.append(f"{_INDENT}Reasons:")
     for reason in cand.reasons:
         lines += _wrap(_INDENT + "  ", "- ", reason)
 
-    lines += _wrap(_INDENT, f"Strength: {sig.strength.name} - ", sig.strength_note)
+    label = f"Strength: {sig.strength.name} - "
+    styled_label = f"Strength: {style.strength(sig.strength.name, sig.strength)} - "
+    lines += _wrap(_INDENT, label, sig.strength_note, styled_label)
 
     commands = crack_commands(sig)
     if commands:
         lines.append(f"{_INDENT}Crack it (save the hash to {HASH_FILE} first):")
-        lines += [f"{_INDENT}  {cmd}" for cmd in commands]
+        lines += [f"{_INDENT}  {style.command(cmd)}" for cmd in commands]
     for note in tool_notes(sig, value):
         lines += _wrap(_INDENT, "Note: ", note)
     return lines
 
 
-def _no_match() -> list[str]:
+def _no_match(style: Styler) -> list[str]:
     known = ", ".join(sig.name for sig in SIGNATURES)
     return [
-        "No known hash format matched this input.",
+        style.warning("No known hash format matched this input."),
         "",
         *_wrap(
             "",
@@ -144,12 +180,19 @@ def _no_match() -> list[str]:
     ]
 
 
-def _wrap(indent: str, label: str, text: str) -> list[str]:
-    """Wrap ``indent + label + text``; continuation lines align after ``label``."""
-    return textwrap.wrap(
+def _wrap(indent: str, label: str, text: str, styled_label: str | None = None) -> list[str]:
+    """Wrap ``indent + label + text``; continuation lines align after ``label``.
+
+    Wrapping is computed on the plain ``label``; ``styled_label`` (the same
+    text with color codes) is swapped in afterwards, so widths stay visible.
+    """
+    lines = textwrap.wrap(
         text,
         width=WIDTH,
         initial_indent=indent + label,
         subsequent_indent=indent + " " * len(label),
         break_on_hyphens=False,
     )
+    if styled_label is not None and lines:
+        lines[0] = indent + styled_label + lines[0][len(indent + label) :]
+    return lines
