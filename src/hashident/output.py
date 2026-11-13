@@ -2,7 +2,11 @@
 
 Output is pure ASCII and every line fits in ``WIDTH`` columns, so it renders
 correctly in old Windows consoles. Commands are never wrapped, so they stay
-copy-pasteable.
+copy-pasteable. Wrapped text always continues under the first character
+after its label (a hanging indent), e.g.
+
+    Strength: STRONG - Salted and deliberately slow, with a tunable cost
+                       factor per guess.
 """
 
 from __future__ import annotations
@@ -11,17 +15,26 @@ import textwrap
 from collections.abc import Sequence
 
 from hashident.commands import HASH_FILE, crack_commands, tool_notes
-from hashident.models import Candidate, Confidence, Result
+from hashident.models import Candidate, Confidence, Context, Result
 from hashident.signatures import SIGNATURES
+from hashident.tips import ContextTip
 
 WIDTH = 80
-MAX_INPUT_CHARS = WIDTH - len("Input:  ")
+_LABEL_WIDTH = len("Context: ")
+MAX_INPUT_CHARS = WIDTH - _LABEL_WIDTH
 _INDENT = "   "
 
+_TIP_QUESTIONS: dict[Context, str] = {
+    Context.WINDOWS: "hash from a Windows system?",
+    Context.LINUX: "hash from a Linux system?",
+    Context.WEB: "hash from a web application?",
+    Context.DB: "hash from a database?",
+}
 
-def format_result(result: Result) -> str:
-    """Render ``result`` as text, without a trailing newline."""
-    lines = _header(result.normalized)
+
+def format_result(result: Result, tips: Sequence[ContextTip] = ()) -> str:
+    """Render ``result`` (and any re-run tips) as text, without a trailing newline."""
+    lines = _header(result)
     lines.append("")
 
     if not result.candidates:
@@ -36,19 +49,36 @@ def format_result(result: Result) -> str:
 
     if any(c.confidence is Confidence.LOW for c in result.candidates):
         lines += ["", "Low-confidence candidates are shown in the table only."]
+    if tips:
+        lines.append("")
+        for tip in tips:
+            text = (
+                f"{_TIP_QUESTIONS[tip.context]} Re-run with --from "
+                f"{tip.context.value} ({tip.top.name} ranks first)"
+            )
+            lines += _wrap("", "Tip: ", text)
     return "\n".join(lines)
 
 
-def _header(value: str) -> list[str]:
+def _header(result: Result) -> list[str]:
+    value = result.normalized
     if not value:
-        return ["Input:  (empty)"]
-    shown = _printable(value)
-    if len(shown) > MAX_INPUT_CHARS:
-        keep = MAX_INPUT_CHARS - len("...")
-        head = (keep + 1) // 2
-        shown = shown[:head] + "..." + shown[len(shown) - (keep - head) :]
-    noun = "character" if len(value) == 1 else "characters"
-    return [f"Input:  {shown}", f"Length: {len(value)} {noun}"]
+        lines = [_label("Input") + "(empty)"]
+    else:
+        shown = _printable(value)
+        if len(shown) > MAX_INPUT_CHARS:
+            keep = MAX_INPUT_CHARS - len("...")
+            head = (keep + 1) // 2
+            shown = shown[:head] + "..." + shown[len(shown) - (keep - head) :]
+        noun = "character" if len(value) == 1 else "characters"
+        lines = [_label("Input") + shown, _label("Length") + f"{len(value)} {noun}"]
+    if result.context is not None:
+        lines.append(_label("Context") + result.context.value)
+    return lines
+
+
+def _label(name: str) -> str:
+    return f"{name}:".ljust(_LABEL_WIDTH)
 
 
 def _printable(value: str) -> str:
@@ -85,21 +115,16 @@ def _details(rank: int, cand: Candidate, value: str) -> list[str]:
 
     lines.append(f"{_INDENT}Reasons:")
     for reason in cand.reasons:
-        lines += _wrap(reason, f"{_INDENT}  - ", f"{_INDENT}    ")
+        lines += _wrap(_INDENT + "  ", "- ", reason)
 
-    label = "Strength: "
-    lines += _wrap(
-        f"{label}{sig.strength.name} - {sig.strength_note}",
-        _INDENT,
-        _INDENT + " " * len(label),
-    )
+    lines += _wrap(_INDENT, f"Strength: {sig.strength.name} - ", sig.strength_note)
 
     commands = crack_commands(sig)
     if commands:
         lines.append(f"{_INDENT}Crack it (save the hash to {HASH_FILE} first):")
         lines += [f"{_INDENT}  {cmd}" for cmd in commands]
     for note in tool_notes(sig, value):
-        lines += _wrap(f"Note: {note}", _INDENT, _INDENT + "      ")
+        lines += _wrap(_INDENT, "Note: ", note)
     return lines
 
 
@@ -109,21 +134,22 @@ def _no_match() -> list[str]:
         "No known hash format matched this input.",
         "",
         *_wrap(
-            "Hint: check for extra characters (quotes, spaces, a 'user:' prefix) "
+            "",
+            "Hint: ",
+            "check for extra characters (quotes, spaces, a 'user:' prefix) "
             "or a truncated copy. Hashes containing $ must be wrapped in single "
             "quotes, or the shell changes them.",
-            "",
-            "      ",
         ),
-        *_wrap(f"Known formats: {known}.", "", " " * len("Known formats: ")),
+        *_wrap("", "Known formats: ", f"{known}."),
     ]
 
 
-def _wrap(text: str, first: str, rest: str) -> list[str]:
+def _wrap(indent: str, label: str, text: str) -> list[str]:
+    """Wrap ``indent + label + text``; continuation lines align after ``label``."""
     return textwrap.wrap(
         text,
         width=WIDTH,
-        initial_indent=first,
-        subsequent_indent=rest,
+        initial_indent=indent + label,
+        subsequent_indent=indent + " " * len(label),
         break_on_hyphens=False,
     )

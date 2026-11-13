@@ -65,7 +65,7 @@ def identify(
     matches no known format; it does not raise for those cases.
     """
     hint = parse_context(context)
-    result = Result(raw=raw)
+    result = Result(raw=raw, context=hint)
     value = result.normalized
     if not value:
         return result
@@ -75,7 +75,7 @@ def identify(
     scored.sort(key=lambda s: (-s.score, s.signature.name))
 
     candidates = tuple(_to_candidate(s, scored, value) for s in scored)
-    return Result(raw=raw, candidates=candidates)
+    return Result(raw=raw, candidates=candidates, context=hint)
 
 
 def _score(sig: Signature, value: str, context: Context | None) -> _Scored:

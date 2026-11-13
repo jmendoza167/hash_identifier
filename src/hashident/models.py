@@ -95,10 +95,12 @@ class Result:
 
     ``normalized`` is derived from ``raw`` (surrounding whitespace stripped).
     ``candidates`` is ordered best-first and is empty if nothing matched.
+    ``context`` is the hint the result was computed with, if any.
     """
 
     raw: str
     candidates: tuple[Candidate, ...] = ()
+    context: Context | None = None
     normalized: str = field(init=False)
 
     def __post_init__(self) -> None:

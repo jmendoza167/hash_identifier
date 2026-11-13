@@ -92,24 +92,24 @@ def test_no_match_prints_helpful_message(raw):
 
 
 def test_empty_input_header():
-    assert render("").startswith("Input:  (empty)")
+    assert render("").startswith("Input:   (empty)")
 
 
 def test_header_shows_normalized_input_and_length():
     lines = render(f"  {MD5.example}\n").splitlines()
 
-    assert lines[:2] == [f"Input:  {MD5.example}", "Length: 32 characters"]
+    assert lines[:2] == [f"Input:   {MD5.example}", "Length:  32 characters"]
 
 
 def test_long_input_is_truncated_in_the_middle():
     raw = "a" * 50 + "b" * 200 + "c" * 50
-    shown = render(raw).splitlines()[0][len("Input:  ") :]
+    shown = render(raw).splitlines()[0][len("Input:   ") :]
 
     keep = MAX_INPUT_CHARS - len("...")
     head, tail = (keep + 1) // 2, keep // 2
     assert len(shown) == MAX_INPUT_CHARS
     assert shown == "a" * head + "..." + "c" * tail
-    assert "Length: 300 characters" in render(raw)
+    assert "Length:  300 characters" in render(raw)
 
 
 def test_non_ascii_and_control_characters_are_escaped():
@@ -137,3 +137,44 @@ def test_no_match_and_long_input_fit_80_columns():
 
 def test_format_result_accepts_result_without_engine():
     assert "No known hash format matched" in format_result(Result(raw="zzz"))
+
+
+# --- Step 9: context header, tips, wrapping ----------------------------------
+
+
+def test_header_shows_context_when_given():
+    lines = format_result(identify(MD5.example, context="windows")).splitlines()
+
+    assert lines[:3] == [f"Input:   {MD5.example}", "Length:  32 characters", "Context: windows"]
+
+
+def test_header_has_no_context_line_without_hint():
+    assert "Context:" not in render(MD5.example)
+
+
+def test_tip_line_format():
+    from hashident.tips import context_tips
+
+    result = identify(MD5.example)
+    text = format_result(result, tips=context_tips(result))
+
+    assert text.splitlines()[-1] == (
+        "Tip: hash from a Windows system? Re-run with --from windows (NTLM ranks first)"
+    )
+
+
+def test_wrapped_strength_line_aligns_under_note_text():
+    lines = render(BCRYPT.example).splitlines()
+    prefix = "   Strength: STRONG - "
+    i = next(i for i, line in enumerate(lines) if line.startswith(prefix))
+
+    assert lines[i] == prefix + "Salted and deliberately slow, with a tunable cost factor"
+    assert lines[i + 1] == " " * len(prefix) + "per guess."
+
+
+def test_wrapped_note_aligns_under_note_text():
+    lines = render(MYSQL41.example).splitlines()
+    i = next(i for i, line in enumerate(lines) if line.startswith("   Note: "))
+
+    assert lines[i + 1].startswith(" " * len("   Note: "))
+    assert lines[i + 1][len("   Note: ")] != " "
