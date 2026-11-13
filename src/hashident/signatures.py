@@ -119,9 +119,10 @@ SHA512 = Signature(
 # The pattern accepts the bare 40-hex form too, because Hashcat's own
 # mode 300 example (and many cracking lists) drop the asterisk. A bare
 # value also matches SHA-1, which outranks MySQL; only the "*" form is
-# unambiguous. When building Hashcat commands later, strip the leading "*":
-# mode 300 expects exactly 40 hex characters. John's mysql-sha1 format
-# expects the asterisk, so keep it there.
+# unambiguous. For Hashcat, strip the leading "*": mode 300 expects exactly
+# 40 hex characters. John's mysql-sha1 format requires the asterisk: its
+# valid() rejects anything but "*" + 40 hex (src/mysqlSHA1_fmt_plug.c).
+# See hashident.commands.tool_notes.
 MYSQL41 = Signature(
     name="MySQL 4.1+",
     pattern=r"\*?" + _hex(40),
