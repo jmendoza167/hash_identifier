@@ -1,5 +1,8 @@
 """Smoke tests for the hashident command-line interface."""
 
+import io
+import sys
+
 import pytest
 
 from hashident import __version__
@@ -16,7 +19,16 @@ def test_version_prints_package_version_and_exits_zero(capsys):
     assert out.strip() == f"hashident {__version__}"
 
 
-def test_no_arguments_prints_help_and_returns_zero(capsys):
+class _Terminal(io.StringIO):
+    def isatty(self):
+        return True
+
+
+def test_no_arguments_prints_help_and_returns_zero(capsys, monkeypatch):
+    # Help is shown only when stdin is a terminal; piped stdin is read instead
+    # (see test_inputs.py), and under pytest stdin is not a terminal.
+    monkeypatch.setattr(sys, "stdin", _Terminal())
+
     # Pass [] explicitly: None would make argparse read pytest's own sys.argv.
     assert main([]) == 0
 
