@@ -1,0 +1,5 @@
+# Line endings: Git stores text files with LF and checks them out with LF on
+# every OS, so Windows, Linux and macOS (and the CI runners) see byte-for-byte
+# identical files. This overrides each machine's core.autocrlf setting.
+# Git detects binary files on its own and leaves them untouched.
+* text=auto eol=lf

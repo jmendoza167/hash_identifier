@@ -1,5 +1,7 @@
 # hashident
 
+[![CI](https://github.com/jmendoza167/hash_identifier/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jmendoza167/hash_identifier/actions/workflows/ci.yml)
+
 hashident is a command-line tool that tells you which algorithm most likely
 produced a hash string. It ranks every matching format with a confidence
 level and the reasons behind it, says how hard the hash is to crack, and
