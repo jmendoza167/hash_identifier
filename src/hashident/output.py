@@ -1,4 +1,7 @@
-"""Plain-text rendering of a Result for the terminal.
+"""Plain-text rendering of results for the terminal.
+
+``format_result`` is the full report for one value; ``CompactTable`` is the
+one-row-per-value view used when there are several.
 
 Output is pure ASCII and every line fits in ``WIDTH`` columns, so it renders
 correctly in old Windows consoles. Commands are never wrapped, so they stay
@@ -17,9 +20,12 @@ default) no escape codes are ever produced.
 from __future__ import annotations
 
 import textwrap
+from collections import Counter
 from collections.abc import Callable, Sequence
+from enum import Enum
 
 from hashident.commands import HASH_FILE, crack_commands, tool_notes
+from hashident.inputs import ARGUMENT_SOURCE, InputItem
 from hashident.models import Candidate, Confidence, Context, Result
 from hashident.signatures import SIGNATURES
 from hashident.style import PLAIN, Styler
@@ -74,11 +80,7 @@ def _header(result: Result) -> list[str]:
         lines = [_label("Input") + "(empty)"]
     else:
         # Escaping control characters also stops input from injecting ANSI codes.
-        shown = _printable(value)
-        if len(shown) > MAX_INPUT_CHARS:
-            keep = MAX_INPUT_CHARS - len("...")
-            head = (keep + 1) // 2
-            shown = shown[:head] + "..." + shown[len(shown) - (keep - head) :]
+        shown = _shorten(_printable(value), MAX_INPUT_CHARS)
         noun = "character" if len(value) == 1 else "characters"
         lines = [_label("Input") + shown, _label("Length") + f"{len(value)} {noun}"]
     if result.context is not None:
@@ -98,7 +100,33 @@ def _printable(value: str) -> str:
     )
 
 
+def _shorten(text: str, limit: int) -> str:
+    """Fit ``text`` in ``limit`` characters by eliding its middle with '...'.
+
+    Both ends are kept because hashes are usually told apart by their
+    prefix ($2a$, *) and checked by their last characters.
+    """
+    if len(text) <= limit:
+        return text
+    keep = max(limit - len("..."), 0)
+    head = (keep + 1) // 2
+    return text[:head] + "..." + text[len(text) - (keep - head) :]
+
+
 _Paint = Callable[[str], str]
+_COLUMN_GAP = "  "
+
+
+def _columns(
+    cells: Sequence[str], widths: Sequence[int], paints: Sequence[_Paint | None] = ()
+) -> str:
+    """Join ``cells`` padded to ``widths``; trailing spaces are dropped."""
+    parts = []
+    for i, (cell, width) in enumerate(zip(cells, widths)):
+        paint = paints[i] if i < len(paints) else None
+        # Pad outside the color codes so padding is measured on visible text.
+        parts.append((paint(cell) if paint else cell) + " " * (width - len(cell)))
+    return _COLUMN_GAP.join(parts).rstrip(" ")
 
 
 def _table(candidates: Sequence[Candidate], style: Styler) -> list[str]:
@@ -123,19 +151,10 @@ def _table(candidates: Sequence[Candidate], style: Styler) -> list[str]:
         rows.append((cells, paints))
 
     widths = [max(len(cell) for cell in col) for col in zip(header, *(r for r, _ in rows))]
-
-    def line(cells: Sequence[str], paints: Sequence[_Paint | None] = ()) -> str:
-        parts = []
-        for i, (cell, width) in enumerate(zip(cells, widths)):
-            paint = paints[i] if i < len(paints) else None
-            # Pad outside the color codes so padding is measured on visible text.
-            parts.append((paint(cell) if paint else cell) + " " * (width - len(cell)))
-        return "  ".join(parts).rstrip(" ")
-
     return [
-        line(header),
-        line(["-" * w for w in widths]),
-        *(line(cells, paints) for cells, paints in rows),
+        _columns(header, widths),
+        _columns(["-" * w for w in widths], widths),
+        *(_columns(cells, widths, paints) for cells, paints in rows),
     ]
 
 
@@ -196,3 +215,126 @@ def _wrap(indent: str, label: str, text: str, styled_label: str | None = None) -
     if styled_label is not None and lines:
         lines[0] = indent + styled_label + lines[0][len(indent + label) :]
     return lines
+
+
+# --- Compact view: one row per value ------------------------------------------
+
+
+class Positions(Enum):
+    """What the first column of the compact table counts."""
+
+    ARGUMENT = "Arg"  # only positional arguments: their index
+    LINE = "Line"  # only lines of a file or stdin: the line number
+    MIXED = "Pos"  # both: "arg 1", "line 7"
+
+
+NO_MATCH = "no match"
+COMPACT_NOTE = "Run hashident on a single value to see its full report and crack commands."
+
+# Fixed widths, so rows can be printed as values arrive instead of after
+# the whole input has been read. Position widths fit 6-digit line numbers;
+# a longer one pushes its row right and the value gets shorter to compensate.
+_POSITION_WIDTH = {Positions.ARGUMENT: 6, Positions.LINE: 6, Positions.MIXED: len("line 999999")}
+_FORMAT_WIDTH = max(len(NO_MATCH), *(len(sig.name) for sig in SIGNATURES))
+_COMPACT_HEADER = ("Value", "Format", "Conf", "Hashcat")
+# "Conf", not "Confidence": the 6 columns saved let 40-41 character hashes
+# (SHA-1, MySQL 4.1+) show in full instead of being shortened.
+_CONF_WIDTH = max(len("Conf"), *(len(level.name) for level in Confidence))
+_TAIL_WIDTHS = (_FORMAT_WIDTH, _CONF_WIDTH, len("Hashcat"))
+# Lets textwrap treat "MySQL 4.1+" as one word; same length as a space.
+_NBSP = "\xa0"
+
+
+class CompactTable:
+    """Renders several values as a table, one row each, then a summary.
+
+    Call ``header()`` once, ``row()`` per value, then ``footer()``. Rows are
+    independent of each other, so a caller can print each one as soon as it
+    is ready. ``row()`` also keeps the counts the footer and exit status use.
+    """
+
+    def __init__(self, positions: Positions, style: Styler = PLAIN) -> None:
+        self._positions = positions
+        self._style = style
+        position_width = _POSITION_WIDTH[positions]
+        value_width = WIDTH - position_width - sum(_TAIL_WIDTHS) - 4 * len(_COLUMN_GAP)
+        self._widths = (position_width, value_width, *_TAIL_WIDTHS)
+        self._formats: Counter[str] = Counter()
+        self.unmatched = 0
+        self._tip_contexts: set[Context] = set()
+        self._tipped = 0
+
+    @property
+    def matched(self) -> int:
+        return sum(self._formats.values())
+
+    @property
+    def total(self) -> int:
+        return self.matched + self.unmatched
+
+    def header(self) -> list[str]:
+        names = (self._positions.value, *_COMPACT_HEADER)
+        return [
+            _columns(names, self._widths),
+            _columns(["-" * w for w in self._widths], self._widths),
+        ]
+
+    def row(self, item: InputItem, result: Result, tips: Sequence[ContextTip] = ()) -> str:
+        """One table row for ``item``; ``tips`` feed the footer's tip line."""
+        style = self._style
+        position = self._position(item)
+        widths = list(self._widths)
+        overflow = max(len(position) - widths[0], 0)
+        widths[0] += overflow
+        widths[1] = max(widths[1] - overflow, len("a...b"))
+        shown = _shorten(_printable(result.normalized), widths[1]) or "(empty)"
+
+        best = result.best
+        if best is None:
+            self.unmatched += 1
+            cells = (position, shown, NO_MATCH, "-", "-")
+            paints: tuple[_Paint | None, ...] = (None, None, style.warning)
+        else:
+            sig = best.signature
+            self._formats[sig.name] += 1
+            mode = "-" if sig.hashcat_mode is None else str(sig.hashcat_mode)
+            cells = (position, shown, sig.name, best.confidence.name, mode)
+            paints = (
+                None,
+                None,
+                style.name,
+                lambda text: style.confidence(text, best.confidence),
+            )
+        if tips:
+            self._tipped += 1
+            self._tip_contexts.update(tip.context for tip in tips)
+        return _columns(cells, widths, paints)
+
+    def footer(self) -> list[str]:
+        """Blank line, summary, the --from tip if any, and the note."""
+        style = self._style
+        lines = [""]
+        counts = [f"{n} {name}" for name, n in self._formats.most_common()]
+        if self.unmatched:
+            counts.append(f"{self.unmatched} {NO_MATCH}")
+        noun = "value" if self.total == 1 else "values"
+        text = ", ".join(c.replace(" ", _NBSP) for c in counts)
+        lines += [
+            line.replace(_NBSP, " ") for line in _wrap("", f"{self.total} {noun}: ", text)
+        ]
+        if self._tip_contexts:
+            names = [c.value for c in Context if c in self._tip_contexts]
+            choices = names[0] if len(names) == 1 else f"{', '.join(names[:-1])} or {names[-1]}"
+            text = (
+                f"--from {choices} would change the top format for "
+                f"{self._tipped} of {self.total} {noun}."
+            )
+            lines += [style.tip(line) for line in _wrap("", "Tip: ", text)]
+        lines.append(style.muted(COMPACT_NOTE))
+        return lines
+
+    def _position(self, item: InputItem) -> str:
+        if self._positions is not Positions.MIXED:
+            return str(item.position)
+        kind = "arg" if item.source == ARGUMENT_SOURCE else "line"
+        return f"{kind} {item.position}"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import functools
+import itertools
 import os
 import sys
 import textwrap
@@ -14,7 +15,7 @@ from hashident import __version__
 from hashident.engine import identify
 from hashident.inputs import InputError, gather
 from hashident.models import Context
-from hashident.output import WIDTH, format_result
+from hashident.output import WIDTH, CompactTable, Positions, format_result
 from hashident.style import Styler
 from hashident.terminal import COLOR_MODES, use_color
 from hashident.tips import context_tips
@@ -24,6 +25,10 @@ Input: hashes given as arguments are reported first, in order, then the
 lines of -f PATH. With neither, hashes are read from standard input when it
 is piped or redirected. In files and piped input, blank lines and lines
 starting with # are skipped. UTF-8 and UTF-16 (with a BOM) are understood.
+
+Output: one hash gets a full report with reasons and crack commands.
+Several hashes get a compact table, one row each (argument index or line
+number, best format, confidence, Hashcat mode), then a count per format.
 
 Quoting: hashes that contain $ (bcrypt, md5crypt, sha512crypt) or start
 with * (MySQL) must be wrapped in single quotes, in PowerShell and bash
@@ -35,8 +40,16 @@ terminal and the NO_COLOR environment variable is unset or empty. Order of
 precedence: --color/--no-color, then NO_COLOR, then terminal detection.
 Piped or redirected output is plain unless you pass --color always.
 
-Exit status: 0 if every hash matched a known format, 1 if any did not,
-2 for invalid arguments or input that cannot be read."""
+Exit status:
+  0  every hash matched a known format
+  1  none did
+  3  some did and some did not
+  2  invalid arguments, or input that cannot be read or has no hashes"""
+
+EXIT_ALL_MATCHED = 0
+EXIT_NONE_MATCHED = 1
+EXIT_ERROR = 2
+EXIT_SOME_MATCHED = 3
 
 # Help and errors are always plain: argparse decides on its own color (3.14+)
 # before --color is parsed, so it could not honour our flags anyway.
@@ -100,32 +113,50 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    reported = unmatched = 0
     try:
         items = gather(args.hashes, args.file)
         if items is None:
             parser.print_help()
-            return 0
+            return EXIT_ALL_MATCHED
 
         style = Styler(enabled=use_color(args.color, sys.stdout, os.environ))
-        for item in items:
-            result = identify(item.value, context=args.context)
-            if reported:
-                print()
+        first, second = next(items, None), next(items, None)
+        if first is None:
+            return _fail(parser, "no hashes found in the input; see hashident --help")
+        if second is None:
+            result = identify(first.value, context=args.context)
             print(format_result(result, tips=context_tips(result), style=style))
-            reported += 1
-            unmatched += not result.candidates
+            matched = bool(result.candidates)
+            return _exit_status(matched=matched, unmatched=not matched)
+
+        table = CompactTable(_positions(args), style)
+        print("\n".join(table.header()))
+        for item in itertools.chain((first, second), items):
+            result = identify(item.value, context=args.context)
+            print(table.row(item, result, context_tips(result)))
+        print("\n".join(table.footer()))
+        return _exit_status(matched=table.matched, unmatched=table.unmatched)
     except InputError as exc:
         return _fail(parser, str(exc))
-    if not reported:
-        return _fail(parser, "no hashes found in the input; see hashident --help")
-    return 1 if unmatched else 0
+
+
+def _positions(args: argparse.Namespace) -> Positions:
+    """What the compact table's first column counts, given the inputs used."""
+    if not args.hashes:
+        return Positions.LINE  # -f, or piped stdin
+    return Positions.ARGUMENT if args.file is None else Positions.MIXED
+
+
+def _exit_status(*, matched: int, unmatched: int) -> int:
+    if not unmatched:
+        return EXIT_ALL_MATCHED
+    return EXIT_SOME_MATCHED if matched else EXIT_NONE_MATCHED
 
 
 def _fail(parser: argparse.ArgumentParser, message: str) -> int:
-    """Print a one-line error (never wrapped: it may hold a path) and return 2."""
+    """Print a one-line error (never wrapped: it may hold a path)."""
     print(f"{parser.prog}: error: {message}", file=sys.stderr)
-    return 2
+    return EXIT_ERROR
 
 
 if __name__ == "__main__":

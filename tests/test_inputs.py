@@ -14,6 +14,8 @@ from hashident.tips import context_tips
 
 MD5_HASH = "8743b52063cd84097a65d1633f5c74f5"
 SHA1_HASH = "b89eaac7e61417341b710b727768294d0e6a277b"
+# 32 characters, so it fits the compact table's Value column unshortened.
+NTLM_HASH = "b4b9b02e6f09a9bd760f388b67351e2b"
 BCRYPT_HASH = "$2a$05$LhayLxezLhK1LhWvKxCyLOj0j1u.Kj0jZ0pEmm134uzrQlFvQJLF6"
 
 
@@ -254,34 +256,33 @@ def test_single_unmatched_value_still_returns_one(capsys):
     assert capsys.readouterr().out == _report("hello world")
 
 
-def test_several_arguments_print_reports_separated_by_a_blank_line(capsys):
-    assert main([MD5_HASH, BCRYPT_HASH]) == 0
+def _compact_values(out: str) -> list[str]:
+    """The Value column of a compact table (see test_compact.py for layout)."""
+    body = out.splitlines()[2:]
+    return [line.split()[1] for line in body[: body.index("")]]
 
-    assert capsys.readouterr().out == _report(MD5_HASH) + "\n" + _report(BCRYPT_HASH)
 
+def test_several_arguments_are_all_reported_in_order(capsys):
+    assert main([MD5_HASH, NTLM_HASH]) == 0
 
-def test_exit_status_is_one_if_any_value_is_unmatched(capsys):
-    assert main([MD5_HASH, "hello world", BCRYPT_HASH]) == 1
-
-    out = capsys.readouterr().out
-    assert out == "\n".join(_report(v) for v in (MD5_HASH, "hello world", BCRYPT_HASH))
+    assert _compact_values(capsys.readouterr().out) == [MD5_HASH, NTLM_HASH]
 
 
 def test_cli_reads_file_option(capsys, tmp_path):
     path = tmp_path / "hashes.txt"
-    path.write_bytes(f"# two hashes\r\n{MD5_HASH}\r\n\r\n{BCRYPT_HASH}\r\n".encode())
+    path.write_bytes(f"# two hashes\r\n{MD5_HASH}\r\n\r\n{NTLM_HASH}\r\n".encode())
 
     for flag in ("-f", "--file"):
         assert main([flag, str(path)]) == 0
-        assert capsys.readouterr().out == _report(MD5_HASH) + "\n" + _report(BCRYPT_HASH)
+        assert _compact_values(capsys.readouterr().out) == [MD5_HASH, NTLM_HASH]
 
 
 def test_cli_reads_piped_stdin(capsys, monkeypatch):
-    monkeypatch.setattr(sys, "stdin", FakeStdin(f"{MD5_HASH}\n{BCRYPT_HASH}\n".encode()))
+    monkeypatch.setattr(sys, "stdin", FakeStdin(f"{MD5_HASH}\n{NTLM_HASH}\n".encode()))
 
     assert main([]) == 0
 
-    assert capsys.readouterr().out == _report(MD5_HASH) + "\n" + _report(BCRYPT_HASH)
+    assert _compact_values(capsys.readouterr().out) == [MD5_HASH, NTLM_HASH]
 
 
 def test_cli_dash_file_reads_stdin(capsys, monkeypatch):
