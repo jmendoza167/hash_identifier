@@ -1,0 +1,153 @@
+name: Release
+
+# Started by hand: Actions tab > Release > Run workflow, then pick the target.
+# Publishing uses PyPI Trusted Publishing (OIDC), so there are no API tokens.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Where to publish
+        required: true
+        type: choice
+        options:
+          - testpypi
+          - pypi
+        default: testpypi
+
+# Least privilege. Only the publish job gets id-token: write (below).
+permissions:
+  contents: read
+
+# One release at a time, and never cancel one that has started publishing.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build and test the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      project-url: ${{ steps.version.outputs.project-url }}
+    env:
+      TARGET: ${{ inputs.target }}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # No pip cache here, so nothing restored from a cache ends up in a release.
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Install build tools
+        run: python -m pip install build twine
+
+      - name: Check the version and branch
+        id: version
+        run: |
+          version=$(PYTHONPATH=src python -c "import hashident; print(hashident.__version__)")
+          echo "Version: $version, target: $TARGET, ref: $GITHUB_REF"
+
+          python - "$version" <<'EOF'
+          import sys
+          from packaging.version import Version
+
+          version = Version(sys.argv[1])
+          if version.is_devrelease:
+              print(
+                  f"::error::Refusing to publish {version}: it is a development (.dev) "
+                  "version. Set the release version in src/hashident/__init__.py first."
+              )
+              sys.exit(1)
+          if version.local:
+              print(f"::error::Refusing to publish {version}: PyPI rejects local versions (+...).")
+              sys.exit(1)
+          EOF
+
+          if [ "$TARGET" = "pypi" ] && [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Refusing to publish to PyPI from $GITHUB_REF; run the workflow from main."
+            exit 1
+          fi
+
+          if [ "$TARGET" = "pypi" ]; then index=https://pypi.org; else index=https://test.pypi.org; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "project-url=$index/project/hashident/$version/" >> "$GITHUB_OUTPUT"
+
+      # Builds the sdist, then the wheel from that sdist.
+      - name: Build the sdist and wheel
+        run: python -m build
+
+      - name: Check the built files
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ls -l dist
+          test -f "dist/hashident-$VERSION.tar.gz"
+          test -f "dist/hashident-$VERSION-py3-none-any.whl"
+          test "$(ls dist | wc -l)" -eq 2
+          python -m twine check --strict dist/*
+
+      # The tests run against the wheel that will be published, not the source
+      # tree: it is installed into a clean environment, and src/ is not on the
+      # import path (pytest runs from the checkout only to find tests/).
+      - name: Run the tests against the built wheel
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python -m venv "$RUNNER_TEMP/test-env"
+          "$RUNNER_TEMP/test-env/bin/python" -m pip install "dist/hashident-$VERSION-py3-none-any.whl" pytest
+          "$RUNNER_TEMP/test-env/bin/python" -c "import hashident; assert 'site-packages' in hashident.__file__, hashident.__file__"
+          "$RUNNER_TEMP/test-env/bin/python" -m pytest
+          "$RUNNER_TEMP/test-env/bin/hashident" --version
+
+      - name: Upload the built packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+      - name: Summary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PROJECT_URL: ${{ steps.version.outputs.project-url }}
+        run: |
+          {
+            echo "### hashident $VERSION built and tested"
+            echo "Publishing to **$TARGET**: $PROJECT_URL"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Publish to ${{ inputs.target }}
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: ${{ inputs.target }}
+      url: ${{ needs.build.outputs.project-url }}
+    permissions:
+      id-token: write # Trusted Publishing: lets PyPI verify this workflow run
+
+    steps:
+      - name: Download the built packages
+        uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to ${{ inputs.target }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: ${{ inputs.target == 'testpypi' && 'https://test.pypi.org/legacy/' || 'https://upload.pypi.org/legacy/' }}
+          print-hash: true

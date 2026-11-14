@@ -31,6 +31,10 @@ classifiers = [
 ]
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/jmendoza167/hash_identifier"
+Issues = "https://github.com/jmendoza167/hash_identifier/issues"
+
 [project.optional-dependencies]
 dev = ["pytest"]
 

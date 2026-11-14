@@ -106,7 +106,23 @@ columns. In a terminal, confidence levels and strength ratings are colored.
 
 hashident needs Python 3.10 or newer.
 
+### From PyPI
+
+hashident is on [PyPI](https://pypi.org/project/hashident/). The easiest way
+to install a command-line tool is [pipx](https://pipx.pypa.io), which gives it
+its own environment and puts the `hashident` command on your PATH:
+
+```sh
+pipx install hashident
+hashident --version
+```
+
+Upgrade later with `pipx upgrade hashident`. To install with pip instead, use
+a virtual environment and run `python -m pip install hashident`.
+
 ### From source
+
+To work on hashident itself, or to run the tests:
 
 ```sh
 git clone https://github.com/jmendoza167/hash_identifier.git
@@ -138,15 +154,6 @@ To run the tests, install the development extra and run pytest:
 ```sh
 python -m pip install -e ".[dev]"
 python -m pytest
-```
-
-### With pipx (coming soon)
-
-hashident is not on PyPI yet. Once the first release is published, you will
-be able to install it with:
-
-```sh
-pipx install hashident
 ```
 
 ## Usage
@@ -305,7 +312,7 @@ without one for the session:
 $OutputEncoding = [Console]::InputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 ```
 
-See [JSON output](#json-output) for the schema.
+The schema is described under JSON output below.
 
 ## Supported formats
 
@@ -383,4 +390,4 @@ Hashcat's mode 300 hash written in MySQL's own `*` format.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](https://github.com/jmendoza167/hash_identifier/blob/main/LICENSE).
