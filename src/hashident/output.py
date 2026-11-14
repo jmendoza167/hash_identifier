@@ -45,9 +45,17 @@ _TIP_QUESTIONS: dict[Context, str] = {
 
 
 def format_result(
-    result: Result, tips: Sequence[ContextTip] = (), style: Styler = PLAIN
+    result: Result,
+    tips: Sequence[ContextTip] = (),
+    style: Styler = PLAIN,
+    *,
+    show_low: bool = False,
 ) -> str:
-    """Render ``result`` (and any re-run tips) as text, without a trailing newline."""
+    """Render ``result`` (and any re-run tips) as text, without a trailing newline.
+
+    LOW-confidence candidates get a detail block only with ``show_low``
+    (--verbose); otherwise they appear in the table alone.
+    """
     lines = _header(result)
     lines.append("")
 
@@ -57,11 +65,11 @@ def format_result(
 
     lines += _table(result.candidates, style)
     for rank, cand in enumerate(result.candidates, start=1):
-        if cand.confidence is not Confidence.LOW:
+        if show_low or cand.confidence is not Confidence.LOW:
             lines.append("")
             lines += _details(rank, cand, result.normalized, style)
 
-    if any(c.confidence is Confidence.LOW for c in result.candidates):
+    if not show_low and any(c.confidence is Confidence.LOW for c in result.candidates):
         lines += ["", style.muted("Low-confidence candidates are shown in the table only.")]
     if tips:
         lines.append("")
@@ -86,6 +94,16 @@ def _header(result: Result) -> list[str]:
     if result.context is not None:
         lines.append(_label("Context") + result.context.value)
     return lines
+
+
+def report_rule(item: InputItem) -> str:
+    """A full-width rule naming ``item``, put above each report in --verbose.
+
+    e.g. ``== line 7 =====...``; the path is left out so it always fits.
+    """
+    kind = "arg" if item.source == ARGUMENT_SOURCE else "line"
+    label = f"== {kind} {item.position} "
+    return label + "=" * max(WIDTH - len(label), 2)
 
 
 def _label(name: str) -> str:
