@@ -140,3 +140,74 @@ def test_md5crypt_salt_is_at_most_8_chars():
 def test_crypt_prefixes_do_not_cross_match():
     assert not MD5CRYPT.matches(SHA512CRYPT.example)
     assert not SHA512CRYPT.matches(MD5CRYPT.example)
+
+
+# --- Registry metadata: category, tier, shape ----------------------------------
+
+from hashident.models import Category, Charset, Tier  # noqa: E402
+from hashident.signatures import application, crypt, raw  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    ("name", "category", "length", "charset", "prefixes"),
+    [
+        ("MD5", Category.RAW, 32, Charset.HEX, ()),
+        ("NTLM", Category.RAW, 32, Charset.HEX, ()),
+        ("SHA-1", Category.RAW, 40, Charset.HEX, ()),
+        ("SHA-224", Category.RAW, 56, Charset.HEX, ()),
+        ("SHA-256", Category.RAW, 64, Charset.HEX, ()),
+        ("SHA-512", Category.RAW, 128, Charset.HEX, ()),
+        # Length varies: 41 with the "*", 40 without it.
+        ("MySQL 4.1+", Category.APPLICATION, None, Charset.HEX, ("*",)),
+        ("md5crypt", Category.CRYPT, None, Charset.CRYPT64, ("$1$",)),
+        ("sha512crypt", Category.CRYPT, None, Charset.CRYPT64, ("$6$",)),
+        ("bcrypt", Category.CRYPT, 60, Charset.CRYPT64, ("$2a$", "$2b$", "$2y$")),
+    ],
+)
+def test_signature_shape_metadata(name, category, length, charset, prefixes):
+    sig = get_signature(name)
+
+    assert sig.category is category
+    assert sig.length == length
+    assert sig.charset is charset
+    assert sig.prefixes == prefixes
+
+
+def test_existing_formats_are_all_in_the_possible_tier():
+    # Each one is the usual answer for its shape, or is pinned by a prefix.
+    assert {sig.tier for sig in SIGNATURES} == {Tier.POSSIBLE}
+
+
+def test_summaries_name_the_classic_aliases():
+    assert get_signature("MySQL 4.1+").summary == "MySQL5, SHA-1(SHA-1($pass))"
+    assert get_signature("md5crypt").summary == "MD5(Unix), Cisco-IOS type 5"
+    assert get_signature("MD5").summary == ""
+
+
+def test_registry_is_the_category_modules_in_order():
+    assert SIGNATURES == raw.SIGNATURES + application.SIGNATURES + crypt.SIGNATURES
+
+
+@pytest.mark.parametrize(
+    ("module", "category"),
+    [(raw, Category.RAW), (application, Category.APPLICATION), (crypt, Category.CRYPT)],
+    ids=["raw", "application", "crypt"],
+)
+def test_each_module_holds_one_category(module, category):
+    assert module.SIGNATURES
+    assert {sig.category for sig in module.SIGNATURES} == {category}
+
+
+def test_registry_order_is_unchanged_from_0_1_0():
+    assert [sig.name for sig in SIGNATURES] == [
+        "MD5",
+        "NTLM",
+        "SHA-1",
+        "SHA-224",
+        "SHA-256",
+        "SHA-512",
+        "MySQL 4.1+",
+        "md5crypt",
+        "sha512crypt",
+        "bcrypt",
+    ]

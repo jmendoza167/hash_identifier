@@ -1,7 +1,7 @@
 """Tests for --from re-run tips."""
 
 from hashident.engine import identify
-from hashident.models import Context, Signature, Strength
+from hashident.models import Category, Context, Signature, Strength, Tier
 from hashident.signatures import BCRYPT, MD5, NTLM, SHA1
 from hashident.tips import ContextTip, context_tips
 
@@ -32,6 +32,8 @@ def test_no_tips_when_no_context_changes_the_top():
 def _fake(name, popularity, contexts=()):
     return Signature(
         name=name,
+        category=Category.RAW,
+        tier=Tier.POSSIBLE,
         pattern=r"x+",
         strength=Strength.WEAK,
         strength_note="test",

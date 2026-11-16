@@ -4,7 +4,7 @@ import pytest
 
 from hashident.context import CONTEXT_BOOST
 from hashident.engine import MEDIUM_MAX_GAP, identify
-from hashident.models import Confidence, Context, Signature, Strength
+from hashident.models import Category, Confidence, Context, Signature, Strength, Tier
 from hashident.signatures import (
     BCRYPT,
     MD5,
@@ -79,6 +79,8 @@ def test_every_candidate_has_a_reason(sig):
 def _fake(name, popularity):
     return Signature(
         name=name,
+        category=Category.RAW,
+        tier=Tier.POSSIBLE,
         pattern=r"x+",
         strength=Strength.WEAK,
         strength_note="test",

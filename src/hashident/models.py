@@ -36,19 +36,77 @@ class Context(Enum):
     DB = "db"
 
 
+class Tier(Enum):
+    """How likely a format is to be the answer for an input of its shape."""
+
+    POSSIBLE = "possible"  # pinned by a prefix or structure, or the usual format for the shape
+    LEAST_POSSIBLE = "least_possible"  # same shape, but rarer
+
+
+class Category(Enum):
+    """What kind of format a signature describes; groups the format lists."""
+
+    CHECKSUM = "checksum"  # error detection, not a cryptographic hash
+    RAW = "raw"  # a bare digest of the password
+    SALTED = "salted"  # generic salted, HMAC and nested constructions
+    APPLICATION = "application"  # tied to a product, database, OS or protocol
+    CRYPT = "crypt"  # crypt(3)-style and key-derivation formats
+
+
+class Charset(Enum):
+    """The alphabet a format's digest is written in."""
+
+    HEX = "hex"  # either case
+    HEX_LOWER = "hex_lower"
+    HEX_UPPER = "hex_upper"
+    BASE64 = "base64"  # standard alphabet, without padding
+    CRYPT64 = "crypt64"  # the ./0-9A-Za-z alphabet of crypt(3)
+    MIXED = "mixed"  # several alphabets, or none in particular
+
+    @property
+    def char_class(self) -> str | None:
+        """The regex character class for one character, or None for MIXED."""
+        return _CHAR_CLASSES.get(self)
+
+
+_CHAR_CLASSES = {
+    Charset.HEX: "[0-9a-fA-F]",
+    Charset.HEX_LOWER: "[0-9a-f]",
+    Charset.HEX_UPPER: "[0-9A-F]",
+    Charset.BASE64: "[A-Za-z0-9+/]",
+    Charset.CRYPT64: "[./0-9A-Za-z]",
+}
+
+
 @dataclass(frozen=True, kw_only=True)
 class Signature:
     """Describes one hash format and how to recognise it.
 
-    ``pattern`` must match the *whole* hash (it is applied with fullmatch).
-    Use inline flags such as ``(?i)`` for case-insensitive formats.
+    A plain shape needs only ``length`` and ``charset``: the pattern is
+    derived from them. Anything with structure gives an explicit ``pattern``,
+    which must match the *whole* hash (it is applied with fullmatch). Use
+    inline flags such as ``(?i)`` for case-insensitive formats.
+
+    ``length`` is the total number of characters when that is fixed, and
+    None when it varies. ``charset`` is the alphabet of the digest itself.
+    ``prefixes`` are the literal markers the format starts with (``$2b$``,
+    ``*``), and ``structure`` names its layout when it has one without a
+    marker (``hash:salt``). ``summary`` holds other names for the format, or
+    the construction behind it.
     """
 
     name: str
-    pattern: str
+    category: Category
+    tier: Tier
     strength: Strength
     strength_note: str
     example: str
+    pattern: str = ""
+    length: int | None = None
+    charset: Charset = Charset.MIXED
+    prefixes: tuple[str, ...] = ()
+    structure: str | None = None
+    summary: str = ""
     hashcat_mode: int | None = None
     john_format: str | None = None
     popularity: float = 1.0
@@ -61,10 +119,24 @@ class Signature:
             raise ValueError("Signature name must not be empty")
         if self.popularity < 0:
             raise ValueError(f"{self.name}: popularity must be >= 0")
-        # frozen=True blocks normal assignment, so set the cached regex directly.
+        # frozen=True blocks normal assignment, so derived fields are set directly.
+        if not self.pattern:
+            char_class = self.charset.char_class
+            if self.length is None or char_class is None:
+                raise ValueError(
+                    f"{self.name}: give a pattern, or a length and a charset to derive one"
+                )
+            object.__setattr__(self, "pattern", f"{char_class}{{{self.length}}}")
         object.__setattr__(self, "_regex", re.compile(self.pattern))
         if not self.matches(self.example):
             raise ValueError(f"{self.name}: example does not match its own pattern")
+        if self.length is not None and len(self.example) != self.length:
+            raise ValueError(
+                f"{self.name}: example is {len(self.example)} characters, "
+                f"but the declared length is {self.length}"
+            )
+        if self.prefixes and not self.example.startswith(self.prefixes):
+            raise ValueError(f"{self.name}: example starts with none of its prefixes")
 
     def matches(self, value: str) -> bool:
         """Return True if ``value`` is entirely in this signature's format."""
