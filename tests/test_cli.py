@@ -27,8 +27,9 @@ def test_verbose_md5_hash_prints_ranked_table_and_returns_zero(capsys):
     assert main(["-v", "8743b52063cd84097a65d1633f5c74f5"]) == 0
 
     out = capsys.readouterr().out
-    assert "\n1  MD5" in out
-    assert "\n2  NTLM" in out
+    rows = [line.split()[:2] for line in out.splitlines()]
+    assert ["1", "MD5"] in rows
+    assert ["2", "NTLM"] in rows
     assert "hashcat -m 0 -a 0 hash.txt wordlist.txt" in out
 
 

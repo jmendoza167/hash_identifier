@@ -312,7 +312,11 @@ def test_sha2_is_the_best_guess_for_its_length_but_not_the_only_one(name):
     ("value", "first", "rest"),
     [
         (MD5.example, ["MD5", "NTLM"], {"LM", "MD4", "RIPEMD-128", "HAVAL-128"}),
-        (SHA1.example, ["SHA-1", "MySQL 4.1+"], {"RIPEMD-160", "Tiger-160", "HAVAL-160"}),
+        (
+            SHA1.example,
+            ["SHA-1", "MySQL 4.1+"],
+            {"RIPEMD-160", "Tiger-160", "HAVAL-160", "sha1($pass.$salt)", "sha1(md5($pass))"},
+        ),
     ],
     ids=["32-hex", "40-hex"],
 )
@@ -393,10 +397,17 @@ def test_db_context_boosts_both_for_bare_40_hex_so_sha1_stays_first():
 # --- Registry invariants the engine relies on -----------------------------------------
 
 
+# Formats that are the only match for their shape and still a long shot.
+ONLY_GUESS_IS_A_LONG_SHOT = {"Lineage II C4"}
+
+
 @pytest.mark.parametrize("sig", SIGNATURES, ids=lambda s: s.name)
 def test_every_example_has_a_possible_candidate(sig):
     # Each shape needs a "usual" format, or its report would have no best guess.
-    assert Tier.POSSIBLE in tiers(identify(sig.example))
+    if sig.name in ONLY_GUESS_IS_A_LONG_SHOT:
+        assert tiers(identify(sig.example)) == [Tier.LEAST_POSSIBLE]
+    else:
+        assert Tier.POSSIBLE in tiers(identify(sig.example))
 
 
 @pytest.mark.parametrize("sig", SIGNATURES, ids=lambda s: s.name)
@@ -428,3 +439,155 @@ def test_also_matches_counts_the_rest_beyond_three():
 
     assert _also_matches(result.best) == "also matches B, C, D and 2 more: same format"
     assert _also_matches(result.candidates[-1]) == "also matches A, B, C and 2 more: same format"
+
+
+# --- Optional structure: a salted hash seen with or without its salt --------------------
+
+SALTED = dict(pattern=r"x+(?P<structure>:y+)?", structure="hash:salt", example="xx:yy")
+
+
+def test_optional_structure_counts_only_when_the_input_has_it():
+    salted = _fake("Salted", 10, **SALTED)
+    lookalike = _fake("Lookalike", 90, **LOOSE)
+
+    assert names(identify("xx:yy", signatures=[lookalike, salted])) == ["Salted"]
+    assert names(identify("xx", signatures=[lookalike, salted])) == ["Lookalike", "Salted"]
+
+
+def test_format_seen_without_its_structure_is_least_possible():
+    salted = _fake("Salted", 90, **SALTED)  # a possible format, when the salt is there
+    plain = _fake("Plain", 10)
+
+    assert tiers(identify("xx:yy", signatures=[salted])) == [Tier.POSSIBLE]
+    result = identify("xx", signatures=[salted, plain])
+    assert names(result) == ["Plain", "Salted"]
+    assert tiers(result) == [Tier.POSSIBLE, Tier.LEAST_POSSIBLE]
+
+
+def test_structure_match_keeps_the_signature_tier():
+    rare = _fake("Rare", 10, tier=Tier.LEAST_POSSIBLE, **SALTED)
+    common = _fake("Common", 50, **SALTED)
+
+    result = identify("xx:yy", signatures=[rare, common])
+
+    assert names(result) == ["Common", "Rare"]
+    assert tiers(result) == [Tier.POSSIBLE, Tier.LEAST_POSSIBLE]
+
+
+def test_structure_reason_names_the_layout():
+    salted = _fake("Salted", **SALTED)
+
+    assert "has the hash:salt layout" in identify("xx:yy", signatures=[salted]).best.reasons
+    assert "has the hash:salt layout" not in identify("xx", signatures=[salted]).best.reasons
+
+
+def test_prefix_reason_names_a_prefix_without_dollar_signs():
+    sig = _fake("Tagged", pattern=r"tag:x+", prefixes=("tag:",), example="tag:x")
+
+    assert "starts with Tagged prefix tag:" in identify("tag:xxx", signatures=[sig]).best.reasons
+
+
+# --- The registry: salted and prefixed formats ------------------------------------------
+
+
+def least(result):
+    return [c.signature.name for c in result.candidates if c.tier is Tier.LEAST_POSSIBLE]
+
+
+def test_bare_md5_lists_salted_and_nested_variants_as_least_possible():
+    found = least(identify(MD5.example))
+
+    for name in ("md5(md5($pass))", "md5($pass.$salt)", "HMAC-MD5 (key = $pass)", "RAdmin v2.x"):
+        assert name in found, name
+    assert "Joomla" not in names(identify(MD5.example))  # needs its salt to be told apart
+
+
+def test_md5_with_a_salt_is_a_salted_md5_not_a_raw_one():
+    result = identify("01dfae6e5d4d90d9892622325959afbe:7050461")
+
+    assert possible(result) == [
+        "md5($pass.$salt)",
+        "md5($salt.$pass)",
+        "Domain Cached Credentials",
+    ]
+    assert "HMAC-MD5 (key = $pass)" in least(result)
+    assert "MD5" not in names(result)
+    assert "NTLM" not in names(result)
+
+
+def test_joomla_is_first_for_a_32_character_alphanumeric_salt():
+    result = identify("19e0e8d91c722e7091ca7a6a6fb0f4fa:UzW4fKkPqXn2MHs9tGyLbR3cJdV7ZaEo")
+
+    assert possible(result)[0] == "Joomla"
+    assert "md5($pass.$salt)" in possible(result)
+    assert "SAM (LM:NT)" not in names(result)
+
+
+def test_a_32_hex_salt_could_also_be_the_nt_half_of_a_sam_entry():
+    # Hashcat's Joomla example has an all-digit salt, which is valid hex too.
+    result = identify("19e0e8d91c722e7091ca7a6a6fb0f4fa:54718031842521651757785603028777")
+
+    assert possible(result)[:2] == ["SAM (LM:NT)", "Joomla"]
+
+
+def test_lm_nt_pair_is_a_sam_entry_first():
+    pair = "299bd128c1101fd6aad3b435b51404ee:b4b9b02e6f09a9bd760f388b67351e2b"
+
+    result = identify(pair)
+
+    assert possible(result)[0] == "SAM (LM:NT)"
+    assert "has the LM:NT layout" in result.best.reasons
+
+
+def test_sha1_with_a_salt_lists_salted_sha1_first():
+    result = identify("2fc5a684737ce1bf7b3b239df432416e0dd07357:2014")
+
+    assert possible(result) == ["sha1($pass.$salt)", "sha1($salt.$pass)"]
+    assert "SHA-1" not in names(result)
+
+
+def test_sixteen_hex_is_old_mysql_first():
+    assert possible(identify("7196759210defdc0")) == ["MySQL323", "MD5(Half)"]
+
+
+@pytest.mark.parametrize(
+    "word", ["administrator", "password12345", "Hello, World!"], ids=["word", "alnum", "text"]
+)
+def test_thirteen_ordinary_characters_are_not_des_crypt(word):
+    assert len(word) == 13
+    assert identify(word).candidates == ()
+
+
+PREFIXED = [sig for sig in SIGNATURES if sig.prefixes]
+
+
+@pytest.mark.parametrize("sig", PREFIXED, ids=lambda s: s.name)
+def test_prefixed_format_brings_no_lookalikes(sig):
+    result = identify(sig.example)
+
+    assert sig in [c.signature for c in result.candidates]
+    for candidate in result.candidates:
+        prefixes = candidate.signature.prefixes
+        assert prefixes and sig.example.startswith(prefixes), candidate.signature.name
+        assert candidate.tier is Tier.POSSIBLE
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("$2b$05$LhayLxezLhK1LhWvKxCyLOj0j1u.Kj0jZ0pEmm134uzrQlFvQJLF6", ["bcrypt"]),
+        ("$1$ehAsHC4t$4IbK3fHS/H1YGtNYBrIEB1", ["md5crypt"]),
+        ("$apr1$71850310$gh9m4xcAn3MGxogwX/ztb.", ["MD5(APR)"]),
+        ("$P$9d2OMJEOHyPg11MeSv46hashcatG.F1", ["WordPress (phpass)"]),
+        ("$H$984478476IagS59wHZvyQMArzfx58u.", ["phpBB3 (phpass)"]),
+        ("*FCF7C1B8749CF99D88E5F34271D636178FB5D130", ["MySQL 4.1+"]),
+        ("sha1$fe76b$02d5916550edf7fc8c886f044887f4b1abf9b013", ["Django SHA-1"]),
+        ("$DCC2$10240#tom#e4e938d12fe5974dc42a90120bd9c90f", ["Domain Cached Credentials 2"]),
+    ],
+    ids=["bcrypt", "md5crypt", "apr1", "wordpress", "phpbb3", "mysql", "django", "dcc2"],
+)
+def test_prefix_pins_the_format_down_to_one(value, expected):
+    result = identify(value)
+
+    assert names(result) == expected
+    assert result.best.confidence is Confidence.HIGH

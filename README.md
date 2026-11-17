@@ -50,11 +50,21 @@ Possible Hashes:
 
 Least Possible Hashes:
 [+] LM - LAN Manager
+[+] md5(md5($pass))
 [+] MD4
+[+] md5($pass.$salt)
+[+] md5($salt.$pass)
+[+] Domain Cached Credentials - DCC, MS Cache, mscash
+[+] md5(sha1($pass))
+[+] HMAC-MD5 (key = $pass)
+[+] HMAC-MD5 (key = $salt)
 [+] RIPEMD-128
+[+] RAdmin v2.x - MD5 of the password padded to 100 bytes
+[+] md5($salt.md5($pass))
 [+] HAVAL-128
 [+] MD2
 [+] Tiger-128 - Tiger-192 cut to 128 bits
+[+] MD5(HMAC(Wordpress))
 [+] Snefru-128
 ```
 
@@ -65,13 +75,20 @@ Least Possible Hashes:
 HASH: b89eaac7e61417341b710b727768294d0e6a277b
 
 Possible Hashes:
-[+] SHA-1                                     (hashcat 100 | john raw-sha1)
+[+] SHA-1  (hashcat 100 | john raw-sha1)
 [+] MySQL 4.1+ - MySQL5, SHA-1(SHA-1($pass))  (hashcat 300 | john mysql-sha1)
 
 Least Possible Hashes:
-[+] RIPEMD-160                                (hashcat 6000 | john ripemd-160)
-[+] HAVAL-160                                 (hashcat 40105)
-[+] Tiger-160 - Tiger-192 cut to 160 bits     (hashcat 40091)
+[+] RIPEMD-160  (hashcat 6000 | john ripemd-160)
+[+] sha1($pass.$salt)  (hashcat 110 | john dynamic_24)
+[+] sha1($salt.$pass)  (hashcat 120 | john dynamic_25)
+[+] sha1(md5($pass))  (hashcat 4700 | john dynamic_23)
+[+] sha1(sha1($pass))                                (hashcat 4500)
+[+] HMAC-SHA1 (key = $pass)  (hashcat 150 | john hmac-sha1)
+[+] HMAC-SHA1 (key = $salt)                          (hashcat 160)
+[+] HAVAL-160                                        (hashcat 40105)
+[+] Tiger-160 - Tiger-192 cut to 160 bits            (hashcat 40091)
+[+] SHA-1(MaNGOS) - sha1(upper($user):upper($pass))  (john dynamic_35)
 ```
 
 `-v` prints a detailed report instead, with the reasons behind each format,
@@ -86,23 +103,34 @@ hashident -v 8743b52063cd84097a65d1633f5c74f5
 Input:   8743b52063cd84097a65d1633f5c74f5
 Length:  32 characters
 
-#  Format      Confidence  Hashcat  John
--  ----------  ----------  -------  -----------
-1  MD5         MEDIUM      0        raw-md5
-2  NTLM        MEDIUM      1000     nt
-3  LM          LOW         3000     lm
-4  MD4         LOW         900      raw-md4
-5  RIPEMD-128  LOW         40086    ripemd-128
-6  HAVAL-128   LOW         40102    haval-128-4
-7  MD2         LOW         40084    md2
-8  Tiger-128   LOW         40090    -
-9  Snefru-128  LOW         40094    snefru-128
+#   Format                     Confidence  Hashcat  John
+--  -------------------------  ----------  -------  -----------
+1   MD5                        MEDIUM      0        raw-md5
+2   NTLM                       MEDIUM      1000     nt
+3   LM                         LOW         3000     lm
+4   md5(md5($pass))            LOW         2600     dynamic_2
+5   MD4                        LOW         900      raw-md4
+6   md5($pass.$salt)           LOW         10       dynamic_1
+7   md5($salt.$pass)           LOW         20       dynamic_4
+8   Domain Cached Credentials  LOW         1100     mscash
+9   md5(sha1($pass))           LOW         4400     dynamic_22
+10  HMAC-MD5 (key = $pass)     LOW         50       hmac-md5
+11  HMAC-MD5 (key = $salt)     LOW         60       -
+12  RIPEMD-128                 LOW         40086    ripemd-128
+13  RAdmin v2.x                LOW         9900     radmin
+14  md5($salt.md5($pass))      LOW         3710     dynamic_9
+15  HAVAL-128                  LOW         40102    haval-128-4
+16  MD2                        LOW         40084    md2
+17  Tiger-128                  LOW         40090    -
+18  MD5(HMAC(Wordpress))       LOW         -        -
+19  Snefru-128                 LOW         40094    snefru-128
 
 1. MD5 - medium confidence
    Reasons:
      - 32 hexadecimal characters
      - most common format with this shape
-     - also matches NTLM, LM, MD4 and 5 more: same length and charset
+     - also matches NTLM, LM, md5(md5($pass)) and 15 more: same length and
+       charset
    Strength: WEAK - Fast and unsalted: GPUs test billions of guesses per second.
    Crack it (save the hash to hash.txt first):
      hashcat -m 0 -a 0 hash.txt wordlist.txt
@@ -112,7 +140,8 @@ Length:  32 characters
    Reasons:
      - 32 hexadecimal characters
      - less common than MD5 with this shape
-     - also matches MD5, LM, MD4 and 5 more: same length and charset
+     - also matches MD5, LM, md5(md5($pass)) and 15 more: same length and
+       charset
    Strength: WEAK - Unsalted MD4 of the password: even faster to crack than MD5.
    Crack it (save the hash to hash.txt first):
      hashcat -m 1000 -a 0 hash.txt wordlist.txt
@@ -423,11 +452,52 @@ format; `--show-modes` prints them next to each match.
 | BLAKE2b-512 | 600 | `raw-blake2` | Moderate |
 | Whirlpool | 6100 | `whirlpool` | Moderate |
 
+### Salted and nested hashes
+
+| Format | Hashcat mode | John format | Strength |
+| --- | --- | --- | --- |
+| md5(md5($pass)) | 2600 | `dynamic_2` | Weak |
+| md5($pass.$salt) | 10 | `dynamic_1` | Weak |
+| md5($salt.$pass) | 20 | `dynamic_4` | Weak |
+| md5(sha1($pass)) | 4400 | `dynamic_22` | Weak |
+| HMAC-MD5 (key = $pass) | 50 | `hmac-md5` | Weak |
+| HMAC-MD5 (key = $salt) | 60 | - | Weak |
+| md5($salt.md5($pass)) | 3710 | `dynamic_9` | Weak |
+| sha1($pass.$salt) | 110 | `dynamic_24` | Weak |
+| sha1($salt.$pass) | 120 | `dynamic_25` | Weak |
+| sha1(md5($pass)) | 4700 | `dynamic_23` | Weak |
+| sha1(sha1($pass)) | 4500 | - | Weak |
+| HMAC-SHA1 (key = $pass) | 150 | `hmac-sha1` | Weak |
+| HMAC-SHA1 (key = $salt) | 160 | - | Weak |
+| sha256($pass.$salt) | 1410 | `dynamic_62` | Moderate |
+| sha256($salt.$pass) | 1420 | `dynamic_61` | Moderate |
+| HMAC-SHA256 (key = $pass) | 1450 | `hmac-sha256` | Moderate |
+| HMAC-SHA256 (key = $salt) | 1460 | - | Moderate |
+| sha512($pass.$salt) | 1710 | `dynamic_82` | Moderate |
+| sha512($salt.$pass) | 1720 | `dynamic_81` | Moderate |
+| HMAC-SHA512 (key = $pass) | 1750 | `hmac-sha512` | Moderate |
+| HMAC-SHA512 (key = $salt) | 1760 | - | Moderate |
+
 ### Application formats
 
 | Format | Hashcat mode | John format | Strength |
 | --- | --- | --- | --- |
+| MySQL323 | 200 | `mysql` | Weak |
 | MySQL 4.1+ | 300 | `mysql-sha1` | Weak |
+| WordPress (phpass) | 400 | `phpass` | Weak |
+| phpBB3 (phpass) | 400 | `phpass` | Weak |
+| MD5(HMAC(Wordpress)) | - | - | Weak |
+| Joomla | 11 | `dynamic_1` | Weak |
+| Django SHA-1 | 124 | - | Weak |
+| Django SHA-256 | - | - | Moderate |
+| Django SHA-384 | - | - | Moderate |
+| Django PBKDF2-SHA256 | 10000 | `django` | Strong |
+| SAM (LM:NT) | 1000 | `nt` | Weak |
+| Domain Cached Credentials | 1100 | `mscash` | Weak |
+| Domain Cached Credentials 2 | 2100 | `mscash2` | Moderate |
+| RAdmin v2.x | 9900 | `radmin` | Weak |
+| Lineage II C4 | - | - | Weak |
+| SHA-1(MaNGOS) | - | `dynamic_35` | Weak |
 
 ### crypt and key-derivation formats
 
@@ -436,6 +506,14 @@ format; `--show-modes` prints them next to each match.
 | md5crypt | 500 | `md5crypt` | Weak |
 | sha512crypt | 1800 | `sha512crypt` | Strong |
 | bcrypt | 3200 | `bcrypt` | Strong |
+| descrypt | 1500 | `descrypt` | Weak |
+| MD5(APR) | 1600 | `md5crypt` | Weak |
+| sha256crypt | 7400 | `sha256crypt` | Strong |
+| Argon2 | 34000 | `argon2` | Strong |
+| scrypt | 8900 | - | Strong |
+| scrypt (Unix) | 36300 | `scrypt` | Strong |
+| yescrypt | 36100 | `crypt` | Strong |
+| gost-yescrypt | 36200 | - | Strong |
 
 ### Checksums (not cryptographic hashes)
 

@@ -14,8 +14,10 @@ For each vector the test also checks that identifying it lists the format in
 the expected tier.
 """
 
+import base64
 import binascii
 import hashlib
+import hmac
 import struct
 import zlib
 from collections.abc import Callable
@@ -90,6 +92,29 @@ def crc(
     return f"{register ^ xorout:0{width // 4}x}"
 
 
+def mysql323(password: bytes) -> str:
+    """MySQL's pre-4.1 PASSWORD(), also called OLD_PASSWORD()."""
+    nr, add, nr2 = 1345345333, 7, 0x12345671
+    for byte in password:
+        if byte in b" \t":
+            continue
+        nr ^= ((((nr & 63) + add) * byte) + (nr << 8)) & 0xFFFFFFFF
+        nr2 = (nr2 + ((nr2 << 8) ^ nr)) & 0xFFFFFFFF
+        add += byte
+    return f"{nr & 0x7FFFFFFF:08x}{nr2 & 0x7FFFFFFF:08x}"
+
+
+def dcc(password: bytes, username: str) -> bytes:
+    """Domain Cached Credentials: MD4(NT hash + lowercased UTF-16 username)."""
+    nt_hash = bytes.fromhex(md4(password.decode().encode("utf-16-le")))
+    return bytes.fromhex(md4(nt_hash + username.lower().encode("utf-16-le")))
+
+
+def dcc2(password: bytes, username: str, rounds: int) -> str:
+    salt = username.lower().encode("utf-16-le")
+    return hashlib.pbkdf2_hmac("sha1", dcc(password, username), salt, rounds, 16).hex()
+
+
 CRC16_ARC = dict(width=16, poly=0x8005, init=0x0000, reflect=True, xorout=0x0000)
 CRC16_CCITT_FALSE = dict(width=16, poly=0x1021, init=0xFFFF, reflect=False, xorout=0x0000)
 CRC16_X25 = dict(width=16, poly=0x1021, init=0xFFFF, reflect=True, xorout=0xFFFF)
@@ -150,6 +175,30 @@ def _md5() -> str:
     return hashlib.md5(PASSWORD).hexdigest()
 
 
+def _hex(algorithm: str, data: bytes = PASSWORD) -> bytes:
+    """The lowercase hex digest as bytes, for hashing a hash."""
+    return hashlib.new(algorithm, data).hexdigest().encode()
+
+
+def salted(algorithm: str, salt: str, *, salt_first: bool = False) -> Computed:
+    """``hash:salt`` for a salt joined to the password on either side."""
+    data = salt.encode() + PASSWORD if salt_first else PASSWORD + salt.encode()
+    return Computed(lambda: f"{hashlib.new(algorithm, data).hexdigest()}:{salt}")
+
+
+def keyed(algorithm: str, salt: str, *, key_is_password: bool) -> Computed:
+    """``hash:salt`` for an HMAC keyed with the password, or with the salt."""
+    key, message = (PASSWORD, salt.encode()) if key_is_password else (salt.encode(), PASSWORD)
+    return Computed(lambda: f"{hmac.new(key, message, algorithm).hexdigest()}:{salt}")
+
+
+def _b64(data: bytes) -> str:
+    return base64.b64encode(data).decode()
+
+
+JOHN = "John the Ripper test vector"
+
+
 UNDOCUMENTED = "listed by classic hash identifiers, but no specification or vector was found"
 
 # name -> (expected tier, where the example comes from)
@@ -199,7 +248,75 @@ VECTORS: dict[str, tuple[Tier, Computed | Published | ShapeOnly]] = {
     "SHA3-512": (P, digest("sha3_512")),
     "BLAKE2b-512": (L, digest("blake2b")),
     "Whirlpool": (L, Published(f"{HASHCAT}, mode 6100")),
+    # Salted and nested hashes
+    "md5(md5($pass))": (L, Computed(lambda: hashlib.md5(_hex("md5")).hexdigest())),
+    "md5(sha1($pass))": (L, Computed(lambda: hashlib.md5(_hex("sha1")).hexdigest())),
+    "md5($pass.$salt)": (P, salted("md5", "7050461")),
+    "md5($salt.$pass)": (P, salted("md5", "4225637426", salt_first=True)),
+    "md5($salt.md5($pass))": (
+        L,
+        Computed(lambda: hashlib.md5(b"1234" + _hex("md5")).hexdigest() + ":1234"),
+    ),
+    "HMAC-MD5 (key = $pass)": (L, keyed("md5", "1234", key_is_password=True)),
+    "HMAC-MD5 (key = $salt)": (L, keyed("md5", "1234", key_is_password=False)),
+    "sha1(sha1($pass))": (L, Computed(lambda: hashlib.sha1(_hex("sha1")).hexdigest())),
+    "sha1(md5($pass))": (L, Computed(lambda: hashlib.sha1(_hex("md5")).hexdigest())),
+    "sha1($pass.$salt)": (P, salted("sha1", "2014")),
+    "sha1($salt.$pass)": (P, salted("sha1", "5363620024", salt_first=True)),
+    "HMAC-SHA1 (key = $pass)": (L, keyed("sha1", "1234", key_is_password=True)),
+    "HMAC-SHA1 (key = $salt)": (L, keyed("sha1", "1234", key_is_password=False)),
+    "sha256($pass.$salt)": (P, salted("sha256", "53743528")),
+    "sha256($salt.$pass)": (P, salted("sha256", "560407001617", salt_first=True)),
+    "HMAC-SHA256 (key = $pass)": (L, keyed("sha256", "1234", key_is_password=True)),
+    "HMAC-SHA256 (key = $salt)": (L, keyed("sha256", "1234", key_is_password=False)),
+    "sha512($pass.$salt)": (P, salted("sha512", "6352283260")),
+    "sha512($salt.$pass)": (P, salted("sha512", "2613516180127", salt_first=True)),
+    "HMAC-SHA512 (key = $pass)": (L, keyed("sha512", "1234", key_is_password=True)),
+    "HMAC-SHA512 (key = $salt)": (L, keyed("sha512", "1234", key_is_password=False)),
     # Application formats
+    "MySQL323": (P, Computed(lambda: mysql323(PASSWORD))),
+    "WordPress (phpass)": (P, Published(f"{HASHCAT}, mode 400")),
+    "phpBB3 (phpass)": (P, Published(f"{HASHCAT}, mode 400")),
+    "MD5(HMAC(Wordpress))": (L, ShapeOnly(UNDOCUMENTED)),
+    "Joomla": (P, salted("md5", "54718031842521651757785603028777")),
+    "Django SHA-1": (
+        P,
+        Computed(lambda: "sha1$fe76b$" + hashlib.sha1(b"fe76b" + PASSWORD).hexdigest()),
+    ),
+    "Django SHA-256": (
+        P,
+        Computed(lambda: "sha256$fe76b$" + hashlib.sha256(b"fe76b" + PASSWORD).hexdigest()),
+    ),
+    "Django SHA-384": (
+        P,
+        Computed(lambda: "sha384$fe76b$" + hashlib.sha384(b"fe76b" + PASSWORD).hexdigest()),
+    ),
+    "Django PBKDF2-SHA256": (
+        P,
+        Computed(
+            lambda: "pbkdf2_sha256$20000$H0dPx8NeajVu$"
+            + _b64(hashlib.pbkdf2_hmac("sha256", PASSWORD, b"H0dPx8NeajVu", 20000))
+        ),
+    ),
+    "SAM (LM:NT)": (
+        P,
+        Computed(
+            lambda: get_signature("LM").example
+            + ":"
+            + md4(PASSWORD.decode().encode("utf-16-le"))
+        ),
+    ),
+    "Domain Cached Credentials": (
+        P,
+        Computed(lambda: dcc(PASSWORD, "3060147285011").hex() + ":3060147285011"),
+    ),
+    "Domain Cached Credentials 2": (
+        P,
+        Computed(lambda: "$DCC2$10240#tom#" + dcc2(PASSWORD, "tom", 10240)),
+    ),
+    "RAdmin v2.x": (L, Computed(lambda: hashlib.md5(PASSWORD.ljust(100, b"\0")).hexdigest())),
+    "Lineage II C4": (L, ShapeOnly(UNDOCUMENTED)),
+    "SHA-1(MaNGOS)": (L, Computed(lambda: hashlib.sha1(b"HASHCAT:HASHCAT").hexdigest())),
     "MySQL 4.1+": (
         P,
         Computed(
@@ -208,6 +325,29 @@ VECTORS: dict[str, tuple[Tier, Computed | Published | ShapeOnly]] = {
     ),
     # crypt(3) formats
     "md5crypt": (P, Published(f"{HASHCAT}, mode 500")),
+    "MD5(APR)": (P, Published(f"{HASHCAT}, mode 1600")),
+    "descrypt": (P, Published(f"{HASHCAT}, mode 1500")),
+    "sha256crypt": (P, Published(f"{HASHCAT}, mode 7400")),
+    "Argon2": (P, Published(f"{HASHCAT}, mode 34000")),
+    "scrypt": (
+        P,
+        Computed(
+            lambda: "SCRYPT:1024:1:1:MDIwMzMwNTQwNDQyNQ==:"
+            + _b64(
+                hashlib.scrypt(
+                    PASSWORD,
+                    salt=base64.b64decode("MDIwMzMwNTQwNDQyNQ=="),
+                    n=1024,
+                    r=1,
+                    p=1,
+                    dklen=32,
+                )
+            )
+        ),
+    ),
+    "scrypt (Unix)": (P, Published(f"{JOHN}, scrypt format (plaintext: pleaseletmein)")),
+    "yescrypt": (P, Published(f"{HASHCAT}, mode 36100")),
+    "gost-yescrypt": (P, Published(f"{HASHCAT}, mode 36200")),
     "sha512crypt": (P, Published(f"{HASHCAT}, mode 1800")),
     "bcrypt": (P, Published(f"{HASHCAT}, mode 3200")),
 }

@@ -97,7 +97,7 @@ def test_mysql_example_is_double_sha1_of_hashcat():
     [
         (4, {"CRC-16", "CRC-16-CCITT", "FCS-16"}),
         (8, {"CRC-32B", "CRC-32", "Adler-32", "GHash-32-3", "GHash-32-5", "XOR-32"}),
-        (16, {"MD5(Half)", "MD5(Middle)"}),
+        (16, {"MySQL323", "MD5(Half)", "MD5(Middle)"}),
         (
             32,
             {
@@ -110,10 +110,35 @@ def test_mysql_example_is_double_sha1_of_hashcat():
                 "HAVAL-128",
                 "Tiger-128",
                 "Snefru-128",
+                "md5(md5($pass))",
+                "md5(sha1($pass))",
+                "md5($pass.$salt)",
+                "md5($salt.$pass)",
+                "md5($salt.md5($pass))",
+                "HMAC-MD5 (key = $pass)",
+                "HMAC-MD5 (key = $salt)",
+                "Domain Cached Credentials",
+                "RAdmin v2.x",
+                "MD5(HMAC(Wordpress))",
             },
         ),
-        # Bare MySQL, as in Hashcat's mode 300 example.
-        (40, {"SHA-1", "MySQL 4.1+", "RIPEMD-160", "Tiger-160", "HAVAL-160"}),
+        (
+            40,
+            {
+                "SHA-1",
+                "MySQL 4.1+",  # bare, as in Hashcat's mode 300 example
+                "RIPEMD-160",
+                "Tiger-160",
+                "HAVAL-160",
+                "sha1(sha1($pass))",
+                "sha1(md5($pass))",
+                "sha1($pass.$salt)",
+                "sha1($salt.$pass)",
+                "HMAC-SHA1 (key = $pass)",
+                "HMAC-SHA1 (key = $salt)",
+                "SHA-1(MaNGOS)",
+            },
+        ),
         (48, {"Tiger-192", "HAVAL-192"}),
         (56, {"SHA-224", "SHA3-224", "HAVAL-224"}),
         (
@@ -126,11 +151,27 @@ def test_mysql_example_is_double_sha1_of_hashcat():
                 "RIPEMD-256",
                 "HAVAL-256",
                 "Snefru-256",
+                "sha256($pass.$salt)",
+                "sha256($salt.$pass)",
+                "HMAC-SHA256 (key = $pass)",
+                "HMAC-SHA256 (key = $salt)",
             },
         ),
         (80, {"RIPEMD-320"}),
         (96, {"SHA-384", "SHA3-384"}),
-        (128, {"SHA-512", "SHA3-512", "BLAKE2b-512", "Whirlpool"}),
+        (
+            128,
+            {
+                "SHA-512",
+                "SHA3-512",
+                "BLAKE2b-512",
+                "Whirlpool",
+                "sha512($pass.$salt)",
+                "sha512($salt.$pass)",
+                "HMAC-SHA512 (key = $pass)",
+                "HMAC-SHA512 (key = $salt)",
+            },
+        ),
         (31, set()),
         (72, set()),
     ],
@@ -175,7 +216,7 @@ def test_crypt_prefixes_do_not_cross_match():
 # --- Registry metadata: category, tier, shape ----------------------------------
 
 from hashident.models import Category, Charset, Tier  # noqa: E402
-from hashident.signatures import application, checksums, crypt, raw  # noqa: E402
+from hashident.signatures import application, checksums, crypt, raw, salted  # noqa: E402
 
 
 @pytest.mark.parametrize(
@@ -211,7 +252,11 @@ def test_summaries_name_the_classic_aliases():
 
 def test_registry_is_the_category_modules_in_order():
     assert SIGNATURES == (
-        raw.SIGNATURES + application.SIGNATURES + crypt.SIGNATURES + checksums.SIGNATURES
+        raw.SIGNATURES
+        + salted.SIGNATURES
+        + application.SIGNATURES
+        + crypt.SIGNATURES
+        + checksums.SIGNATURES
     )
 
 
@@ -219,11 +264,12 @@ def test_registry_is_the_category_modules_in_order():
     ("module", "category"),
     [
         (raw, Category.RAW),
+        (salted, Category.SALTED),
         (application, Category.APPLICATION),
         (crypt, Category.CRYPT),
         (checksums, Category.CHECKSUM),
     ],
-    ids=["raw", "application", "crypt", "checksums"],
+    ids=["raw", "salted", "application", "crypt", "checksums"],
 )
 def test_each_module_holds_one_category(module, category):
     assert module.SIGNATURES

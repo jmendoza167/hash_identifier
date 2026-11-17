@@ -19,19 +19,21 @@ A match is one of three kinds, most specific first:
 
 * PREFIX: the input starts with one of the signature's ``prefixes``
   (``$2b$``, ``*``).
-* STRUCTURE: the signature declares a ``structure`` (``hash:salt``).
+* STRUCTURE: the input has the signature's ``structure`` (``hash:salt``).
 * SHAPE: only the length and character set fit.
 
 Only the most specific kind present is kept, so a prefix match wins
 outright: no lookalike of the same length is listed next to it. A format
-whose prefix is optional (MySQL 4.1+ without its ``*``) is a SHAPE match
-when the input lacks the prefix.
+whose prefix or structure is optional (MySQL 4.1+ without its ``*``, a
+salted MD5 without its salt) is a SHAPE match when the input lacks it.
 
 Tiers and confidence
 --------------------
-A candidate's tier is its signature's, except that a PREFIX match is always
-POSSIBLE. A context hint reorders candidates within a tier; it never moves
-one across tiers.
+A candidate's tier is its signature's, with two exceptions. A PREFIX match
+is always POSSIBLE. A format with a structure that is matched without it is
+always LEAST_POSSIBLE: 32 hex characters could be a salted MD5 whose salt is
+stored elsewhere, but that is a long shot next to plain MD5. A context hint
+reorders candidates within a tier; it never moves one across tiers.
 
 Confidence is derived from the tier:
 
@@ -127,19 +129,31 @@ def _match(
     value: str, signatures: Sequence[Signature]
 ) -> list[tuple[Signature, _Specificity]]:
     """The signatures that match ``value``, keeping only the most specific kind."""
-    matched = [(sig, _specificity(sig, value)) for sig in signatures if sig.matches(value)]
+    matched = [
+        (sig, _specificity(sig, value, match))
+        for sig in signatures
+        if (match := sig.match(value)) is not None
+    ]
     if not matched:
         return []
     strongest = max(specificity for _, specificity in matched)
     return [(sig, specificity) for sig, specificity in matched if specificity is strongest]
 
 
-def _specificity(sig: Signature, value: str) -> _Specificity:
+def _specificity(sig: Signature, value: str, match: re.Match[str]) -> _Specificity:
     if sig.prefixes and value.startswith(sig.prefixes):
         return _Specificity.PREFIX
-    if sig.structure is not None:
+    if sig.has_structure(match):
         return _Specificity.STRUCTURE
     return _Specificity.SHAPE
+
+
+def _tier(sig: Signature, specificity: _Specificity) -> Tier:
+    if specificity is _Specificity.PREFIX:
+        return Tier.POSSIBLE
+    if specificity is _Specificity.SHAPE and sig.structure is not None:
+        return Tier.LEAST_POSSIBLE  # seen without its salt: a long shot
+    return sig.tier
 
 
 def _score(
@@ -151,13 +165,13 @@ def _score(
 ) -> _Scored:
     """Score one matching signature: popularity plus every adjustment."""
     score = float(sig.popularity)
-    reasons = [_shape_reason(sig, value)]
+    reasons = [_shape_reason(sig, value, specificity)]
     if whitespace_removed:
         reasons.append(WHITESPACE_REASON)
     for adj in _adjustments(sig, value, context):
         score += adj.delta
         reasons.append(adj.reason)
-    tier = Tier.POSSIBLE if specificity is _Specificity.PREFIX else sig.tier
+    tier = _tier(sig, specificity)
     return _Scored(signature=sig, tier=tier, score=score, reasons=tuple(reasons))
 
 
@@ -226,7 +240,7 @@ def _ranking_reason(item: _Scored, ranked: Sequence[_Scored]) -> str:
     return f"{comparison} with this shape, but {leader} matches the context hint"
 
 
-def _shape_reason(sig: Signature, value: str) -> str:
+def _shape_reason(sig: Signature, value: str, specificity: _Specificity) -> str:
     """Describe what about the input's shape matched this signature."""
     if _HEX_RE.fullmatch(value):
         return f"{len(value)} hexadecimal characters"
@@ -238,4 +252,9 @@ def _shape_reason(sig: Signature, value: str) -> str:
         if parts[1] in _MCF_COST_IDS and len(parts) > 2 and parts[2].isdigit():
             reason += f" (cost {int(parts[2])})"
         return reason
+    if specificity is _Specificity.PREFIX:
+        prefix = next(p for p in sig.prefixes if value.startswith(p))
+        return f"starts with {sig.name} prefix {prefix}"
+    if specificity is _Specificity.STRUCTURE:
+        return f"has the {sig.structure} layout"
     return f"matches the {sig.name} format ({len(value)} characters)"

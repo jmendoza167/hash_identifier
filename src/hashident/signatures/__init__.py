@@ -1,8 +1,8 @@
 """The signature database: every hash format hashident knows how to recognise.
 
 ``SIGNATURES`` is the one registry the rest of the program reads. It is put
-together from one module per category (``raw``, ``application``, ``crypt``,
-``checksums``), each holding plain ``Signature`` entries.
+together from one module per category (``raw``, ``salted``, ``application``,
+``crypt``, ``checksums``), each holding plain ``Signature`` entries.
 
 Adding a format
 ---------------
@@ -45,7 +45,7 @@ can still lift a lower-ranked format to the top, e.g. NTLM over MD5 with
 from __future__ import annotations
 
 from hashident.models import Signature
-from hashident.signatures import application, checksums, crypt, raw
+from hashident.signatures import application, checksums, crypt, raw, salted
 from hashident.signatures.application import MYSQL41
 from hashident.signatures.crypt import BCRYPT, MD5CRYPT, SHA512CRYPT
 from hashident.signatures.raw import MD5, NTLM, SHA1, SHA224, SHA256, SHA512
@@ -67,7 +67,11 @@ __all__ = [
 
 # The order here is not significant: results are ranked by tier and score.
 SIGNATURES: tuple[Signature, ...] = (
-    raw.SIGNATURES + application.SIGNATURES + crypt.SIGNATURES + checksums.SIGNATURES
+    raw.SIGNATURES
+    + salted.SIGNATURES
+    + application.SIGNATURES
+    + crypt.SIGNATURES
+    + checksums.SIGNATURES
 )
 
 _BY_NAME: dict[str, Signature] = {sig.name.casefold(): sig for sig in SIGNATURES}

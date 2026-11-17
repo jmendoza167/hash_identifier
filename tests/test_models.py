@@ -183,3 +183,35 @@ def test_example_may_start_with_any_declared_prefix():
     )
 
     assert sig.prefixes == ("$2a$", "$2b$")
+
+
+# --- Optional structure ----------------------------------------------------------------
+
+
+def test_match_returns_the_regex_match_or_none():
+    sig = _shaped()
+
+    assert sig.match(MD5_OF_PASSWORD).group(0) == MD5_OF_PASSWORD
+    assert sig.match("nope") is None
+
+
+def test_example_must_show_the_structure_when_it_is_optional():
+    with pytest.raises(ValueError, match="structure"):
+        _shaped(
+            pattern=r"[0-9a-f]{32}(?P<structure>:\w+)?",
+            length=None,
+            structure="hash:salt",
+            example=MD5_OF_PASSWORD,
+        )
+
+
+def test_example_with_its_optional_structure_is_accepted():
+    sig = _shaped(
+        pattern=r"[0-9a-f]{32}(?P<structure>:\w+)?",
+        length=None,
+        structure="hash:salt",
+        example=MD5_OF_PASSWORD + ":salt",
+    )
+
+    assert sig.matches(MD5_OF_PASSWORD)
+    assert sig.matches(MD5_OF_PASSWORD + ":salt")

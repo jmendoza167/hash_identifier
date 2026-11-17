@@ -16,7 +16,7 @@ def render(raw):
 def table_rows(text):
     """The table's data rows: lines after the dashed rule, up to a blank line."""
     lines = text.splitlines()
-    start = next(i for i, line in enumerate(lines) if line.startswith("-  ")) + 1
+    start = next(i for i, line in enumerate(lines) if set(line) == {"-", " "}) + 1
     rows = []
     for line in lines[start:]:
         if not line:

@@ -115,7 +115,7 @@ def test_md5_record_keys_and_types(capsys):
         assert isinstance(cand["score"], float)
         assert cand["confidence"] in {"high", "medium", "low"}
         assert cand["tier"] == ("possible" if rank <= 2 else "least_possible")
-        assert cand["category"] == "raw"
+        assert cand["category"] in {"raw", "salted", "application"}
         assert isinstance(cand["hashcat_mode"], (int, type(None)))
         assert isinstance(cand["john_format"], (str, type(None)))
         assert cand["strength"] in {"weak", "moderate", "strong"}
@@ -125,6 +125,7 @@ def test_md5_record_keys_and_types(capsys):
             assert all(isinstance(s, str) for s in cand[key])
 
     md5, ntlm = record["candidates"][:2]
+    assert (md5["category"], ntlm["category"]) == ("raw", "raw")
     assert (md5["confidence"], ntlm["confidence"]) == ("medium", "medium")
     assert md5["score"] > ntlm["score"]
     assert (md5["hashcat_mode"], md5["john_format"]) == (0, "raw-md5")

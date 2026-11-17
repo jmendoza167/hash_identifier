@@ -94,6 +94,12 @@ class Signature:
     marker (``hash:salt``). ``summary`` holds other names for the format, or
     the construction behind it. ``notes`` say how to prepare the hash for
     Hashcat or John when they want it in another form.
+
+    A salted hash is often seen without its salt. To recognise both forms,
+    make the salt part of the pattern optional inside a group named
+    ``structure``, e.g. ``[0-9a-f]{32}(?P<structure>:\\w+)?``. The engine
+    treats a match without that group as a bare shape (see
+    ``hashident.engine``). The example must show the full form.
     """
 
     name: str
@@ -139,10 +145,26 @@ class Signature:
             )
         if self.prefixes and not self.example.startswith(self.prefixes):
             raise ValueError(f"{self.name}: example starts with none of its prefixes")
+        if self.structure is not None and not self.has_structure(self.match(self.example)):
+            raise ValueError(f"{self.name}: example lacks the optional structure part")
+
+    def match(self, value: str) -> re.Match[str] | None:
+        """The match if ``value`` is entirely in this signature's format, else None."""
+        return self._regex.fullmatch(value)
 
     def matches(self, value: str) -> bool:
         """Return True if ``value`` is entirely in this signature's format."""
-        return self._regex.fullmatch(value) is not None
+        return self.match(value) is not None
+
+    def has_structure(self, match: re.Match[str] | None) -> bool:
+        """Whether ``match`` includes the format's structure.
+
+        True unless the pattern makes the structure optional (a group named
+        ``structure``) and the matched value left it out.
+        """
+        if match is None or self.structure is None:
+            return False
+        return match.groupdict().get("structure", "") is not None
 
 
 @dataclass(frozen=True)
