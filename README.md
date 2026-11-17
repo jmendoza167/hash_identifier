@@ -33,7 +33,8 @@ and leave the rest to you. hashident tries to answer the next questions too:
 
 ## Example
 
-Each hash gets a block listing the formats it could be, best first:
+Each hash gets a block listing the formats it could be: the usual ones for
+its shape first, then the rarer ones.
 
 ```sh
 hashident 8743b52063cd84097a65d1633f5c74f5
@@ -46,6 +47,15 @@ HASH: 8743b52063cd84097a65d1633f5c74f5
 Possible Hashes:
 [+] MD5
 [+] NTLM
+
+Least Possible Hashes:
+[+] LM - LAN Manager
+[+] MD4
+[+] RIPEMD-128
+[+] HAVAL-128
+[+] MD2
+[+] Tiger-128 - Tiger-192 cut to 128 bits
+[+] Snefru-128
 ```
 
 `--show-modes` adds each format's Hashcat mode and John format:
@@ -57,6 +67,11 @@ HASH: b89eaac7e61417341b710b727768294d0e6a277b
 Possible Hashes:
 [+] SHA-1                                     (hashcat 100 | john raw-sha1)
 [+] MySQL 4.1+ - MySQL5, SHA-1(SHA-1($pass))  (hashcat 300 | john mysql-sha1)
+
+Least Possible Hashes:
+[+] RIPEMD-160                                (hashcat 6000 | john ripemd-160)
+[+] HAVAL-160                                 (hashcat 40105)
+[+] Tiger-160 - Tiger-192 cut to 160 bits     (hashcat 40091)
 ```
 
 `-v` prints a detailed report instead, with the reasons behind each format,
@@ -71,16 +86,23 @@ hashident -v 8743b52063cd84097a65d1633f5c74f5
 Input:   8743b52063cd84097a65d1633f5c74f5
 Length:  32 characters
 
-#  Format  Confidence  Hashcat  John
--  ------  ----------  -------  -------
-1  MD5     MEDIUM      0        raw-md5
-2  NTLM    MEDIUM      1000     nt
+#  Format      Confidence  Hashcat  John
+-  ----------  ----------  -------  -----------
+1  MD5         MEDIUM      0        raw-md5
+2  NTLM        MEDIUM      1000     nt
+3  LM          LOW         3000     lm
+4  MD4         LOW         900      raw-md4
+5  RIPEMD-128  LOW         40086    ripemd-128
+6  HAVAL-128   LOW         40102    haval-128-4
+7  MD2         LOW         40084    md2
+8  Tiger-128   LOW         40090    -
+9  Snefru-128  LOW         40094    snefru-128
 
 1. MD5 - medium confidence
    Reasons:
      - 32 hexadecimal characters
      - most common format with this shape
-     - also matches NTLM: same length and charset
+     - also matches NTLM, LM, MD4 and 5 more: same length and charset
    Strength: WEAK - Fast and unsalted: GPUs test billions of guesses per second.
    Crack it (save the hash to hash.txt first):
      hashcat -m 0 -a 0 hash.txt wordlist.txt
@@ -90,11 +112,13 @@ Length:  32 characters
    Reasons:
      - 32 hexadecimal characters
      - less common than MD5 with this shape
-     - also matches MD5: same length and charset
+     - also matches MD5, LM, MD4 and 5 more: same length and charset
    Strength: WEAK - Unsalted MD4 of the password: even faster to crack than MD5.
    Crack it (save the hash to hash.txt first):
      hashcat -m 1000 -a 0 hash.txt wordlist.txt
      john --format=nt --wordlist=wordlist.txt hash.txt
+
+Low-confidence candidates are shown in the table only.
 
 Tip: hash from a Windows system? Re-run with --from windows (NTLM ranks first)
 ```
@@ -353,6 +377,15 @@ The schema is described under JSON output below.
 
 ## Supported formats
 
+hashident lists a format under **Possible Hashes** when it is the usual
+answer for the input's shape or is pinned by a prefix, and under **Least
+Possible Hashes** when it has the same shape but is rarer. The tables give
+the Hashcat mode and John the Ripper format where the tool supports the
+format; `--show-modes` prints them next to each match.
+
+<!-- formats-table: start -->
+### Raw hashes
+
 | Format | Hashcat mode | John format | Strength |
 | --- | --- | --- | --- |
 | MD5 | 0 | `raw-md5` | Weak |
@@ -361,18 +394,74 @@ The schema is described under JSON output below.
 | SHA-224 | 1300 | `raw-sha224` | Moderate |
 | SHA-256 | 1400 | `raw-sha256` | Moderate |
 | SHA-512 | 1700 | `raw-sha512` | Moderate |
+| MD5(Half) | 5100 | - | Weak |
+| MD5(Middle) | - | - | Weak |
+| LM | 3000 | `lm` | Weak |
+| MD4 | 900 | `raw-md4` | Weak |
+| RIPEMD-128 | 40086 | `ripemd-128` | Weak |
+| MD2 | 40084 | `md2` | Weak |
+| HAVAL-128 | 40102 | `haval-128-4` | Weak |
+| Tiger-128 | 40090 | - | Moderate |
+| Snefru-128 | 40094 | `snefru-128` | Weak |
+| RIPEMD-160 | 6000 | `ripemd-160` | Moderate |
+| Tiger-160 | 40091 | - | Moderate |
+| HAVAL-160 | 40105 | - | Weak |
+| Tiger-192 | 40089 | `tiger` | Moderate |
+| HAVAL-192 | 40108 | - | Weak |
+| SHA3-224 | 17300 | - | Moderate |
+| HAVAL-224 | 40111 | - | Weak |
+| SHA3-256 | 17400 | - | Moderate |
+| BLAKE2s-256 | 31000 | - | Moderate |
+| GOST R 34.11-94 | 6900 | `gost` | Weak |
+| RIPEMD-256 | 40087 | - | Moderate |
+| HAVAL-256 | 40114 | `haval-256-3` | Weak |
+| Snefru-256 | 40095 | `snefru-256` | Weak |
+| RIPEMD-320 | 33600 | - | Moderate |
+| SHA-384 | 10800 | `raw-sha384` | Moderate |
+| SHA3-384 | 17500 | - | Moderate |
+| SHA3-512 | 17600 | - | Moderate |
+| BLAKE2b-512 | 600 | `raw-blake2` | Moderate |
+| Whirlpool | 6100 | `whirlpool` | Moderate |
+
+### Application formats
+
+| Format | Hashcat mode | John format | Strength |
+| --- | --- | --- | --- |
 | MySQL 4.1+ | 300 | `mysql-sha1` | Weak |
+
+### crypt and key-derivation formats
+
+| Format | Hashcat mode | John format | Strength |
+| --- | --- | --- | --- |
 | md5crypt | 500 | `md5crypt` | Weak |
 | sha512crypt | 1800 | `sha512crypt` | Strong |
 | bcrypt | 3200 | `bcrypt` | Strong |
 
-Several formats share a shape: 32 hex characters fit both MD5 and NTLM, and
-40 fit both SHA-1 and a MySQL 4.1+ hash without its leading `*`. That is why
-hashident ranks candidates instead of naming one.
+### Checksums (not cryptographic hashes)
 
-For MySQL 4.1+, Hashcat mode 300 expects the 40 hex characters without the
-`*`, while John's `mysql-sha1` format needs it. hashident prints a note saying
-which form each tool wants.
+| Format | Hashcat mode | John format | Strength |
+| --- | --- | --- | --- |
+| CRC-16 | - | - | Weak |
+| CRC-16-CCITT | - | - | Weak |
+| FCS-16 | - | - | Weak |
+| CRC-32B | 11500 | `crc32` | Weak |
+| CRC-32 | - | - | Weak |
+| Adler-32 | - | - | Weak |
+| GHash-32-3 | - | - | Weak |
+| GHash-32-5 | - | - | Weak |
+| XOR-32 | - | - | Weak |
+<!-- formats-table: end -->
+
+Many formats share a shape: 32 hex characters fit MD5, NTLM, LM, MD4 and
+several rarer digests, and 40 fit SHA-1, RIPEMD-160 and a MySQL 4.1+ hash
+without its leading `*`. That is why hashident ranks candidates instead of
+naming one.
+
+For some formats a tool wants the hash in a slightly different form, and `-v`
+prints a note saying so. For example, Hashcat mode 300 expects a MySQL 4.1+
+hash without the `*` while John's `mysql-sha1` format needs it, and Hashcat
+wants `$BLAKE2$` in front of a BLAKE2 digest. Hashcat modes from 40000 up
+were added in hashcat 8.0.0.
 
 ## Exit codes
 

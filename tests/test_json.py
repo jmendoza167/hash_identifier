@@ -107,24 +107,24 @@ def test_md5_record_keys_and_types(capsys):
     assert record["input"] == MD5.example
     assert record["context"] is None
     assert record["matched"] is True
-    assert [c["format"] for c in record["candidates"]] == ["MD5", "NTLM"]
+    assert [c["format"] for c in record["candidates"]][:2] == ["MD5", "NTLM"]
 
     for rank, cand in enumerate(record["candidates"], start=1):
         assert list(cand) == CANDIDATE_KEYS
         assert cand["rank"] == rank
         assert isinstance(cand["score"], float)
         assert cand["confidence"] in {"high", "medium", "low"}
-        assert cand["tier"] == "possible"
+        assert cand["tier"] == ("possible" if rank <= 2 else "least_possible")
         assert cand["category"] == "raw"
-        assert isinstance(cand["hashcat_mode"], int)
-        assert isinstance(cand["john_format"], str)
+        assert isinstance(cand["hashcat_mode"], (int, type(None)))
+        assert isinstance(cand["john_format"], (str, type(None)))
         assert cand["strength"] in {"weak", "moderate", "strong"}
         assert isinstance(cand["strength_note"], str) and cand["strength_note"]
         for key in ("reasons", "commands", "notes"):
             assert isinstance(cand[key], list)
             assert all(isinstance(s, str) for s in cand[key])
 
-    md5, ntlm = record["candidates"]
+    md5, ntlm = record["candidates"][:2]
     assert (md5["confidence"], ntlm["confidence"]) == ("medium", "medium")
     assert md5["score"] > ntlm["score"]
     assert (md5["hashcat_mode"], md5["john_format"]) == (0, "raw-md5")

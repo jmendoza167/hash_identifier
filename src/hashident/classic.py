@@ -17,7 +17,7 @@ laid out on plain text before any color is applied.
 
 from __future__ import annotations
 
-from hashident.models import Candidate, Result, Signature, Tier
+from hashident.models import Candidate, Category, Result, Signature, Tier
 from hashident.output import NO_MATCH_MESSAGE, WIDTH, no_match_hint, printable, shorten
 from hashident.style import PLAIN, Styler
 
@@ -75,7 +75,11 @@ def format_classic(
 
 
 def _label(sig: Signature) -> str:
-    return f"{sig.name} - {sig.summary}" if sig.summary else sig.name
+    """The name, then what else is worth knowing: ``name - checksum, summary``."""
+    extras = ["checksum"] if sig.category is Category.CHECKSUM else []
+    if sig.summary:
+        extras.append(sig.summary)
+    return f"{sig.name} - {', '.join(extras)}" if extras else sig.name
 
 
 def _modes(sig: Signature) -> str:

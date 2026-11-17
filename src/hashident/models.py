@@ -92,7 +92,8 @@ class Signature:
     ``prefixes`` are the literal markers the format starts with (``$2b$``,
     ``*``), and ``structure`` names its layout when it has one without a
     marker (``hash:salt``). ``summary`` holds other names for the format, or
-    the construction behind it.
+    the construction behind it. ``notes`` say how to prepare the hash for
+    Hashcat or John when they want it in another form.
     """
 
     name: str
@@ -109,6 +110,7 @@ class Signature:
     summary: str = ""
     hashcat_mode: int | None = None
     john_format: str | None = None
+    notes: tuple[str, ...] = ()
     popularity: float = 1.0
     contexts: frozenset[Context] = frozenset()
 

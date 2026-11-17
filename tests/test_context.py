@@ -2,12 +2,18 @@
 
 import pytest
 
+from hashident import engine
 from hashident.context import CONTEXT_BOOST, parse_context
-from hashident.engine import identify
 from hashident.models import Confidence, Context
 from hashident.signatures import BCRYPT, MD5, NTLM
 
 HEX32 = MD5.example
+
+
+def identify(raw, context=None):
+    """Identify against a fixed set, so these tests do not move with the registry:
+    one shape shared by two possible formats, and one format with a prefix."""
+    return engine.identify(raw, context, signatures=(MD5, NTLM, BCRYPT))
 
 
 def names(result):

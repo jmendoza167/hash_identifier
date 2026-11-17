@@ -267,8 +267,9 @@ COMPACT_NOTE = "Run hashident -v on a value to see its reasons and crack command
 # Fixed widths, so rows can be printed as values arrive instead of after
 # the whole input has been read. Position widths fit 6-digit line numbers;
 # a longer one pushes its row right and the value gets shorter to compensate.
+# The same goes for a format name longer than its column.
 _POSITION_WIDTH = {Positions.ARGUMENT: 6, Positions.LINE: 6, Positions.MIXED: len("line 999999")}
-_FORMAT_WIDTH = max(len(NO_MATCH), *(len(sig.name) for sig in SIGNATURES))
+_FORMAT_WIDTH = len("sha512crypt")
 _COMPACT_HEADER = ("Value", "Format", "Conf", "Hashcat")
 # "Conf", not "Confidence": the 6 columns saved let 40-41 character hashes
 # (SHA-1, MySQL 4.1+) show in full instead of being shortened.
@@ -316,13 +317,18 @@ class CompactTable:
         """One table row for ``item``; ``tips`` feed the footer's tip line."""
         style = self._style
         position = self._position(item)
+        best = result.best
+        name = NO_MATCH if best is None else best.signature.name
         widths = list(self._widths)
-        overflow = max(len(position) - widths[0], 0)
-        widths[0] += overflow
-        widths[1] = max(widths[1] - overflow, len("a...b"))
+        # A long position or format name takes its extra room from the value,
+        # so the columns after them stay under their headers.
+        for column, cell in ((0, position), (2, name)):
+            overflow = max(len(cell) - widths[column], 0)
+            widths[column] += overflow
+            widths[1] -= overflow
+        widths[1] = max(widths[1], len("a...b"))
         shown = shorten(printable(result.normalized), widths[1]) or "(empty)"
 
-        best = result.best
         if best is None:
             self.unmatched += 1
             cells = (position, shown, NO_MATCH, "-", "-")

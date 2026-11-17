@@ -198,10 +198,11 @@ def test_long_summary_wraps_without_splitting_a_format_name():
     footer = table.footer()
 
     summary = footer[1 : footer.index(NOTE)]
+    total = f"{len(SIGNATURES) + 20} values: "
     assert len(summary) > 1
-    assert summary[0].startswith("30 values: 2 MD5, 1 SHA-1, ")
+    assert summary[0].startswith(total)
     assert all(len(line) <= WIDTH for line in summary)
-    assert summary[1].startswith(" " * len("30 values: "))
+    assert summary[1].startswith(" " * len(total))
     joined = " ".join(line.strip() for line in summary)
     assert "MySQL 4.1+" in joined
     assert joined.endswith("20 no match")
@@ -349,3 +350,46 @@ def test_compact_color_scheme(capsys):
     assert "\x1b[32mHIGH\x1b[0m" in out  # HIGH green
     assert "\x1b[33mno match\x1b[0m" in out  # no match yellow, like the full report
     assert f"\x1b[2m{NOTE}\x1b[0m" in out  # note muted
+
+
+# --- Long format names ---------------------------------------------------------------
+
+
+def _long_named(name):
+    from hashident.models import Category, Charset, Signature, Strength, Tier
+
+    return Signature(
+        name=name,
+        category=Category.RAW,
+        tier=Tier.POSSIBLE,
+        length=40,
+        charset=Charset.HEX,
+        strength=Strength.WEAK,
+        strength_note="test",
+        example=SHA1.example,
+        hashcat_mode=12345,
+    )
+
+
+def test_long_format_name_takes_room_from_the_value_column():
+    sig = _long_named("A Format With A Long Name")  # 25 characters
+    table = CompactTable(Positions.ARGUMENT)
+    header = table.header()[0]
+
+    row = table.row(InputItem(SHA1.example, ARGUMENT_SOURCE, 1), identify(SHA1.example, signatures=[sig]))
+
+    assert len(row) <= WIDTH
+    assert "A Format With A Long Name" in row
+    assert "..." in row  # the 40-character value no longer fits whole
+    # The columns after the name still line up with the header.
+    for name in ("Conf", "Hashcat"):
+        assert row[header.index(name)] != " "
+        assert row[header.index(name) - 2 : header.index(name)] == "  "
+
+
+def test_format_column_width_does_not_depend_on_the_registry():
+    header = CompactTable(Positions.ARGUMENT).header()[0]
+
+    # Wide enough for "sha512crypt"; 42 columns are left for the value.
+    assert header.index("Conf") - header.index("Format") == len("sha512crypt") + 2
+    assert header.index("Format") - header.index("Value") == 42 + 2

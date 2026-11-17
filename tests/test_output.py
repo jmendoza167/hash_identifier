@@ -28,9 +28,10 @@ def table_rows(text):
 def test_md5_table_lists_md5_then_ntlm():
     rows = table_rows(render(MD5.example))
 
-    assert rows == [
+    assert rows[:3] == [
         ["1", "MD5", "MEDIUM", "0", "raw-md5"],
         ["2", "NTLM", "MEDIUM", "1000", "nt"],
+        ["3", "LM", "LOW", "3000", "lm"],
     ]
 
 
@@ -42,7 +43,7 @@ def test_md5_has_a_detail_block_for_each_possible_format():
     assert "hashcat -m 0 -a 0 hash.txt wordlist.txt" in text
     assert "john --format=raw-md5 --wordlist=wordlist.txt hash.txt" in text
     assert "hashcat -m 1000 -a 0 hash.txt wordlist.txt" in text
-    assert "Low-confidence" not in text
+    assert "3. LM" not in text  # least possible: in the table only
 
 
 def test_least_possible_format_is_in_the_table_but_has_no_detail_block(tiered_signatures):
@@ -82,13 +83,10 @@ def test_bare_mysql_note_tells_john_users_to_add_asterisk():
     assert "For john, add a leading '*'" in note
 
 
-def test_other_formats_need_no_tool_notes():
-    assert all(tool_notes(sig, sig.example) == () for sig in SIGNATURES if sig is not MYSQL41)
-
-
-def test_every_signature_has_both_commands():
-    for sig in SIGNATURES:
-        assert len(crack_commands(sig)) == 2, sig.name
+def test_formats_the_tools_take_as_they_are_need_no_tool_notes():
+    for name in ("MD5", "NTLM", "SHA-1", "SHA-256", "bcrypt", "md5crypt", "RIPEMD-160"):
+        sig = next(s for s in SIGNATURES if s.name == name)
+        assert tool_notes(sig, sig.example) == (), name
 
 
 @pytest.mark.parametrize("raw", ["hello world", "", "   "])
@@ -188,3 +186,44 @@ def test_wrapped_note_aligns_under_note_text():
 
     assert lines[i + 1].startswith(" " * len("   Note: "))
     assert lines[i + 1][len("   Note: ")] != " "
+
+
+# --- Tool notes -----------------------------------------------------------------------
+
+from hashident.models import Category, Signature, Strength, Tier  # noqa: E402
+
+
+def _noted(**overrides):
+    fields = dict(
+        name="Noted",
+        category=Category.RAW,
+        tier=Tier.POSSIBLE,
+        pattern=r"x+",
+        strength=Strength.WEAK,
+        strength_note="test",
+        example="xxx",
+    )
+    fields.update(overrides)
+    return Signature(**fields)
+
+
+def test_a_signature_can_carry_its_own_tool_notes():
+    sig = _noted(notes=("For hashcat, put '$X$' in front of the hash.",))
+
+    assert tool_notes(sig, "xxx") == ("For hashcat, put '$X$' in front of the hash.",)
+    text = format_result(identify("xxx", signatures=[sig]))
+    assert "Note: For hashcat, put '$X$' in front of the hash." in text
+
+
+def test_recipe_modes_are_flagged_as_needing_hashcat_8():
+    assert tool_notes(_noted(hashcat_mode=40084), "xxx") == (
+        "Hashcat mode 40084 needs hashcat 8.0.0 or newer.",
+    )
+    assert tool_notes(_noted(hashcat_mode=39999), "xxx") == ()
+    assert tool_notes(_noted(), "xxx") == ()
+
+
+def test_commands_cover_exactly_the_tools_that_support_the_format():
+    for sig in SIGNATURES:
+        tools = (sig.hashcat_mode is not None) + (sig.john_format is not None)
+        assert len(crack_commands(sig)) == tools, sig.name

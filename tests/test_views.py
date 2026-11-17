@@ -53,8 +53,8 @@ def test_several_values_print_one_block_each_under_a_rule(capsys):
         assert lines[index - 1] == ""  # blank line before each later rule
     assert all(lines[i + 1].startswith("HASH: ") for i in rules)
     assert format_classic(identify(BCRYPT.example)) in out
-    assert out.count("Possible Hashes:") == 2
-    assert out.count("[-] No known hash format matched this input.") == 1
+    assert lines.count("Possible Hashes:") == 2
+    assert lines.count("[-] No known hash format matched this input.") == 1
 
 
 def test_file_lines_are_named_by_line_number(capsys, tmp_path):
@@ -85,9 +85,35 @@ def test_exit_status_is_unchanged(capsys, argv, expected):
 
 
 def test_show_modes_adds_hashcat_and_john(capsys):
-    _, out = run(capsys, "--show-modes", MD5.example)
+    _, out = run(capsys, "--show-modes", "--possible-only", MD5.example)
 
     assert "[+] MD5   (hashcat 0 | john raw-md5)\n[+] NTLM  (hashcat 1000 | john nt)\n" in out
+
+
+def test_show_modes_covers_the_least_possible_formats_too(capsys):
+    _, out = run(capsys, "--show-modes", MD5.example)
+
+    rows = [line.split("  (")[0].rstrip() + " (" + line.split("  (")[1] for line in out.splitlines() if "  (" in line]
+    assert "[+] MD5 (hashcat 0 | john raw-md5)" in rows
+    assert "[+] MD4 (hashcat 900 | john raw-md4)" in rows
+    assert "[+] Tiger-128 - Tiger-192 cut to 128 bits (hashcat 40090)" in rows
+
+
+def test_possible_only_trims_a_real_32_hex_result(capsys):
+    _, out = run(capsys, "--possible-only", MD5.example)
+
+    assert out == f"HASH: {MD5.example}\n\nPossible Hashes:\n[+] MD5\n[+] NTLM\n"
+
+
+def test_double_verbose_adds_details_for_real_least_possible_formats(capsys):
+    _, plain = run(capsys, "-v", MD5.example)
+    _, more = run(capsys, "-vv", MD5.example)
+
+    assert "LM - low confidence" not in plain
+    assert "Low-confidence candidates are shown in the table only." in plain
+    assert "LM - low confidence" in more
+    assert "hashcat -m 3000 -a 0 hash.txt wordlist.txt" in more
+    assert "Hashcat mode 40084 needs hashcat 8.0.0 or newer." in " ".join(more.split())
 
 
 # --- --possible-only ---------------------------------------------------------------

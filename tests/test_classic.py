@@ -5,7 +5,7 @@ import pytest
 from hashident.classic import format_classic
 from hashident.engine import identify
 from hashident.models import Category, Context, Signature, Strength, Tier
-from hashident.signatures import BCRYPT, MD5, MYSQL41, SIGNATURES
+from hashident.signatures import BCRYPT, MD5, MYSQL41, NTLM, SIGNATURES
 from hashident.style import ANSI, strip_ansi
 
 
@@ -24,6 +24,10 @@ def _fake(name, *, tier=Tier.POSSIBLE, summary="", hashcat_mode=None, john_forma
     )
 
 
+PAIR = (MD5, NTLM)
+"""Layout tests use fixed formats, so they do not move with the registry."""
+
+
 def lines_of(result, **options):
     return format_classic(result, **options).splitlines()
 
@@ -32,7 +36,7 @@ def lines_of(result, **options):
 
 
 def test_md5_block_lists_possible_formats_best_first():
-    assert lines_of(identify(MD5.example)) == [
+    assert lines_of(identify(MD5.example, signatures=PAIR)) == [
         "HASH: 8743b52063cd84097a65d1633f5c74f5",
         "",
         "Possible Hashes:",
@@ -67,14 +71,14 @@ def test_summary_follows_the_name():
 
 
 def test_context_hint_reorders_the_possible_section():
-    lines = lines_of(identify(MD5.example, Context.WINDOWS))
+    lines = lines_of(identify(MD5.example, Context.WINDOWS, signatures=PAIR))
 
     assert lines[3:] == ["[+] NTLM", "[+] MD5"]
 
 
 def test_input_line_can_be_left_out():
     # In interactive mode the prompt line already shows the hash.
-    assert lines_of(identify(MD5.example), show_input=False) == [
+    assert lines_of(identify(MD5.example, signatures=PAIR), show_input=False) == [
         "Possible Hashes:",
         "[+] MD5",
         "[+] NTLM",
@@ -164,7 +168,7 @@ def test_empty_input_is_shown_as_empty():
 
 
 def test_whitespace_inside_the_input_is_reported():
-    lines = lines_of(identify("8743b52063cd8409 7a65d1633f5c74f5"))
+    lines = lines_of(identify("8743b52063cd8409 7a65d1633f5c74f5", signatures=PAIR))
 
     assert lines[:4] == [
         "HASH: 8743b52063cd84097a65d1633f5c74f5",
@@ -225,3 +229,70 @@ def test_color_scheme(tiered_signatures):
     assert "\x1b[2m[+]\x1b[0m Rare-128" in text  # least possible: dim marker, plain name
     assert "\x1b[2m(hashcat 0 | john raw-md5)\x1b[0m" in text  # modes dim
     assert "\x1b[33m[-] No known hash format" in format_classic(identify("zz"), style=ANSI)
+
+
+# --- Checksums -----------------------------------------------------------------------
+
+
+def _checksum(name, summary=""):
+    return Signature(
+        name=name,
+        category=Category.CHECKSUM,
+        tier=Tier.POSSIBLE,
+        pattern=r"x+",
+        summary=summary,
+        strength=Strength.WEAK,
+        strength_note="test",
+        example="xxx",
+        hashcat_mode=7,
+    )
+
+
+def test_checksums_are_labelled_as_checksums():
+    sigs = [_checksum("Sum-A"), _checksum("Sum-B", summary="used by zlib"), _fake("Digest")]
+
+    assert lines_of(identify("xxx", signatures=sigs))[3:] == [
+        "[+] Digest",
+        "[+] Sum-A - checksum",
+        "[+] Sum-B - checksum, used by zlib",
+    ]
+
+
+def test_checksum_label_sits_before_the_modes():
+    lines = lines_of(identify("xxx", signatures=[_checksum("Sum-A")]), show_modes=True)
+
+    assert lines[3:] == ["[+] Sum-A - checksum  (hashcat 7)"]
+
+
+@pytest.mark.parametrize("sig", SIGNATURES, ids=lambda s: s.name)
+def test_every_checksum_in_the_registry_is_labelled(sig):
+    line = next(
+        line
+        for line in lines_of(identify(sig.example))
+        if line == f"[+] {sig.name}" or line.startswith(f"[+] {sig.name} - ")
+    )
+
+    assert ("checksum" in line) == (sig.category is Category.CHECKSUM)
+
+
+# --- The real registry -----------------------------------------------------------------
+
+
+def test_md5_hash_shows_both_tiers_with_the_registry():
+    lines = lines_of(identify(MD5.example))
+
+    assert lines[2:5] == ["Possible Hashes:", "[+] MD5", "[+] NTLM"]
+    assert lines[5:7] == ["", "Least Possible Hashes:"]
+    assert lines[7] == "[+] LM - LAN Manager"
+    assert "[+] RIPEMD-128" in lines
+
+
+def test_eight_hex_characters_are_reported_as_checksums():
+    lines = lines_of(identify("c762de4a"))
+
+    assert lines[2:6] == [
+        "Possible Hashes:",
+        "[+] CRC-32B - checksum, zlib, PNG, PHP crc32b",
+        "[+] CRC-32 - checksum, CRC-32/BZIP2",
+        "[+] Adler-32 - checksum, zlib",
+    ]

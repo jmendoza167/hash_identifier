@@ -54,6 +54,9 @@ from hashident.signatures import SIGNATURES
 
 WHITESPACE_REASON = "ignoring whitespace inside the input"
 
+ALSO_MATCHES_LIMIT = 3
+"""How many other formats a reason names before it just counts the rest."""
+
 _HEX_RE = re.compile(r"[0-9a-fA-F]+")
 
 # Modular crypt format identifiers whose first parameter is a cost factor.
@@ -178,7 +181,7 @@ def _to_candidate(item: _Scored, ranked: Sequence[_Scored], value: str) -> Candi
         confidence = Confidence.MEDIUM if item.tier is Tier.POSSIBLE else Confidence.LOW
         reasons.append(_ranking_reason(item, ranked))
         why = "same length and charset" if _HEX_RE.fullmatch(value) else "same format"
-        reasons.append(f"also matches {', '.join(others)}: {why}")
+        reasons.append(f"also matches {_some(others)}: {why}")
 
     return Candidate(
         signature=item.signature,
@@ -187,6 +190,13 @@ def _to_candidate(item: _Scored, ranked: Sequence[_Scored], value: str) -> Candi
         confidence=confidence,
         reasons=tuple(reasons),
     )
+
+
+def _some(names: Sequence[str]) -> str:
+    """Up to ``ALSO_MATCHES_LIMIT`` names, then a count of the rest."""
+    shown = ", ".join(names[:ALSO_MATCHES_LIMIT])
+    rest = len(names) - ALSO_MATCHES_LIMIT
+    return f"{shown} and {rest} more" if rest > 0 else shown
 
 
 def _ranking_reason(item: _Scored, ranked: Sequence[_Scored]) -> str:

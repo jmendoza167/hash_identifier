@@ -17,15 +17,24 @@ from hashident.signatures import (
 )
 
 
+PAIR = (MD5, NTLM)
+"""The two possible formats for 32 hex characters, without the rarer ones."""
+
+
 def names(result):
     return [c.signature.name for c in result.candidates]
+
+
+def possible(result):
+    return [c.signature.name for c in result.candidates if c.tier is Tier.POSSIBLE]
 
 
 def test_md5_example_ranks_md5_then_ntlm_and_neither_is_high():
     result = identify(MD5.example)
 
-    assert names(result) == ["MD5", "NTLM"]
-    md5, ntlm = result.candidates
+    assert possible(result) == ["MD5", "NTLM"]
+    assert names(result)[:2] == ["MD5", "NTLM"]
+    md5, ntlm = result.candidates[:2]
     # Both are usual answers for 32 hex characters, so both are "possible".
     assert (md5.tier, ntlm.tier) == (Tier.POSSIBLE, Tier.POSSIBLE)
     assert (md5.confidence, ntlm.confidence) == (Confidence.MEDIUM, Confidence.MEDIUM)
@@ -33,7 +42,7 @@ def test_md5_example_ranks_md5_then_ntlm_and_neither_is_high():
 
 
 def test_md5_reasons_explain_shape_and_ambiguity():
-    md5 = identify(MD5.example).best
+    md5 = identify(MD5.example, signatures=PAIR).best
 
     assert "32 hexadecimal characters" in md5.reasons
     assert "most common format with this shape" in md5.reasons
@@ -56,7 +65,7 @@ def test_surrounding_whitespace_is_ignored():
     result = identify(f"  {MD5.example}\n")
 
     assert result.normalized == MD5.example
-    assert names(result) == ["MD5", "NTLM"]
+    assert possible(result) == ["MD5", "NTLM"]
 
 
 @pytest.mark.parametrize("raw", ["hello world", "", "   ", "\t\n"])
@@ -258,7 +267,7 @@ WHITESPACE_REASON = "ignoring whitespace inside the input"
 def test_whitespace_inside_the_input_is_ignored_when_nothing_matches_as_is(raw):
     result = identify(raw)
 
-    assert names(result) == ["MD5", "NTLM"]
+    assert possible(result) == ["MD5", "NTLM"]
     assert result.normalized == MD5.example
     for candidate in result.candidates:
         assert WHITESPACE_REASON in candidate.reasons
@@ -289,20 +298,38 @@ def test_unmatched_input_keeps_its_inner_whitespace():
 # --- Step 7: SHA family, crypt formats, MySQL --------------------------------
 
 
-@pytest.mark.parametrize("sig", SIGNATURES, ids=lambda s: s.name)
-def test_each_example_identifies_its_own_format_first(sig):
-    # NTLM's example is indistinguishable from MD5 by shape; it needs its hint.
-    context = Context.WINDOWS if sig is NTLM else None
-    assert identify(sig.example, context=context).best.signature is sig
-
-
-@pytest.mark.parametrize("name", ["SHA-224", "SHA-256", "SHA-512"])
-def test_unique_sha_lengths_are_single_high_candidates(name):
+@pytest.mark.parametrize("name", ["SHA-224", "SHA-256", "SHA-384", "SHA-512"])
+def test_sha2_is_the_best_guess_for_its_length_but_not_the_only_one(name):
     sig = next(s for s in SIGNATURES if s.name == name)
     result = identify(sig.example)
 
-    assert names(result) == [name]
-    assert result.best.confidence is Confidence.HIGH
+    assert result.best.signature is sig
+    assert len(result.candidates) > 1
+    assert result.best.confidence is Confidence.MEDIUM
+
+
+@pytest.mark.parametrize(
+    ("value", "first", "rest"),
+    [
+        (MD5.example, ["MD5", "NTLM"], {"LM", "MD4", "RIPEMD-128", "HAVAL-128"}),
+        (SHA1.example, ["SHA-1", "MySQL 4.1+"], {"RIPEMD-160", "Tiger-160", "HAVAL-160"}),
+    ],
+    ids=["32-hex", "40-hex"],
+)
+def test_common_formats_are_possible_and_rarer_ones_least_possible(value, first, rest):
+    result = identify(value)
+
+    assert possible(result) == first
+    least = {c.signature.name for c in result.candidates if c.tier is Tier.LEAST_POSSIBLE}
+    assert rest <= least
+    assert all(c.confidence is Confidence.LOW for c in result.candidates[len(first) :])
+
+
+def test_ntlm_is_the_best_guess_for_32_hex_from_windows_and_lm_leads_the_rest():
+    result = identify(NTLM.example, context=Context.WINDOWS)
+
+    assert possible(result) == ["NTLM", "MD5"]
+    assert names(result)[2] == "LM"
 
 
 @pytest.mark.parametrize(
@@ -334,9 +361,8 @@ def test_mysql_with_asterisk_is_high_confidence():
 def test_bare_40_hex_is_sha1_first_with_mysql_as_runner_up():
     result = identify(MYSQL41.example[1:].lower())  # Hashcat's mode 300 example
 
-    assert names(result) == ["SHA-1", "MySQL 4.1+"]
-    assert tiers(result) == [Tier.POSSIBLE, Tier.POSSIBLE]
-    assert [c.confidence for c in result.candidates] == [Confidence.MEDIUM, Confidence.MEDIUM]
+    assert possible(result) == ["SHA-1", "MySQL 4.1+"]
+    assert [c.confidence for c in result.candidates[:2]] == [Confidence.MEDIUM, Confidence.MEDIUM]
 
 
 @pytest.mark.parametrize("sig", [MD5CRYPT, SHA512CRYPT], ids=lambda s: s.name)
@@ -358,9 +384,9 @@ def test_db_context_boosts_mysql():
 def test_db_context_boosts_both_for_bare_40_hex_so_sha1_stays_first():
     result = identify(SHA1.example, context="db")
 
-    assert names(result) == ["SHA-1", "MySQL 4.1+"]
+    assert possible(result) == ["SHA-1", "MySQL 4.1+"]
     assert all(
-        c.score == c.signature.popularity + CONTEXT_BOOST for c in result.candidates
+        c.score == c.signature.popularity + CONTEXT_BOOST for c in result.candidates[:2]
     )
 
 
@@ -378,3 +404,27 @@ def test_possible_candidates_always_come_first(sig):
     found = tiers(identify(sig.example))
 
     assert found == sorted(found, key=[Tier.POSSIBLE, Tier.LEAST_POSSIBLE].index)
+
+
+# --- "also matches" stays readable when many formats share a shape ----------------------
+
+
+def _also_matches(candidate):
+    return next(r for r in candidate.reasons if r.startswith("also matches "))
+
+
+def test_also_matches_names_up_to_three_other_formats():
+    sigs = [_fake(name, pop) for name, pop in [("A", 90), ("B", 80), ("C", 70), ("D", 60)]]
+
+    top = identify("xxx", signatures=sigs).best
+
+    assert _also_matches(top) == "also matches B, C, D: same format"
+
+
+def test_also_matches_counts_the_rest_beyond_three():
+    sigs = [_fake(name, 90 - i) for i, name in enumerate("ABCDEF")]
+
+    result = identify("xxx", signatures=sigs)
+
+    assert _also_matches(result.best) == "also matches B, C, D and 2 more: same format"
+    assert _also_matches(result.candidates[-1]) == "also matches A, B, C and 2 more: same format"

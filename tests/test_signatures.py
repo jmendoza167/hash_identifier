@@ -71,7 +71,7 @@ def test_get_signature_is_case_insensitive():
 
 def test_get_signature_unknown_name_raises():
     with pytest.raises(KeyError, match="Unknown signature"):
-        get_signature("whirlpool")
+        get_signature("no-such-format")
 
 
 # --- Step 7: SHA family, crypt formats, MySQL --------------------------------
@@ -95,14 +95,44 @@ def test_mysql_example_is_double_sha1_of_hashcat():
 @pytest.mark.parametrize(
     ("length", "expected"),
     [
-        (32, {"MD5", "NTLM"}),
-        (40, {"SHA-1", "MySQL 4.1+"}),  # bare MySQL, as in Hashcat's mode 300 example
-        (56, {"SHA-224"}),
-        (64, {"SHA-256"}),
-        (128, {"SHA-512"}),
+        (4, {"CRC-16", "CRC-16-CCITT", "FCS-16"}),
+        (8, {"CRC-32B", "CRC-32", "Adler-32", "GHash-32-3", "GHash-32-5", "XOR-32"}),
+        (16, {"MD5(Half)", "MD5(Middle)"}),
+        (
+            32,
+            {
+                "MD5",
+                "NTLM",
+                "LM",
+                "MD4",
+                "MD2",
+                "RIPEMD-128",
+                "HAVAL-128",
+                "Tiger-128",
+                "Snefru-128",
+            },
+        ),
+        # Bare MySQL, as in Hashcat's mode 300 example.
+        (40, {"SHA-1", "MySQL 4.1+", "RIPEMD-160", "Tiger-160", "HAVAL-160"}),
+        (48, {"Tiger-192", "HAVAL-192"}),
+        (56, {"SHA-224", "SHA3-224", "HAVAL-224"}),
+        (
+            64,
+            {
+                "SHA-256",
+                "SHA3-256",
+                "BLAKE2s-256",
+                "GOST R 34.11-94",
+                "RIPEMD-256",
+                "HAVAL-256",
+                "Snefru-256",
+            },
+        ),
+        (80, {"RIPEMD-320"}),
+        (96, {"SHA-384", "SHA3-384"}),
+        (128, {"SHA-512", "SHA3-512", "BLAKE2b-512", "Whirlpool"}),
         (31, set()),
-        (48, set()),
-        (96, set()),  # SHA-384 is not in the database yet
+        (72, set()),
     ],
 )
 def test_hex_length_matches_only_expected_formats(length, expected):
@@ -145,7 +175,7 @@ def test_crypt_prefixes_do_not_cross_match():
 # --- Registry metadata: category, tier, shape ----------------------------------
 
 from hashident.models import Category, Charset, Tier  # noqa: E402
-from hashident.signatures import application, crypt, raw  # noqa: E402
+from hashident.signatures import application, checksums, crypt, raw  # noqa: E402
 
 
 @pytest.mark.parametrize(
@@ -173,11 +203,6 @@ def test_signature_shape_metadata(name, category, length, charset, prefixes):
     assert sig.prefixes == prefixes
 
 
-def test_existing_formats_are_all_in_the_possible_tier():
-    # Each one is the usual answer for its shape, or is pinned by a prefix.
-    assert {sig.tier for sig in SIGNATURES} == {Tier.POSSIBLE}
-
-
 def test_summaries_name_the_classic_aliases():
     assert get_signature("MySQL 4.1+").summary == "MySQL5, SHA-1(SHA-1($pass))"
     assert get_signature("md5crypt").summary == "MD5(Unix), Cisco-IOS type 5"
@@ -185,29 +210,23 @@ def test_summaries_name_the_classic_aliases():
 
 
 def test_registry_is_the_category_modules_in_order():
-    assert SIGNATURES == raw.SIGNATURES + application.SIGNATURES + crypt.SIGNATURES
+    assert SIGNATURES == (
+        raw.SIGNATURES + application.SIGNATURES + crypt.SIGNATURES + checksums.SIGNATURES
+    )
 
 
 @pytest.mark.parametrize(
     ("module", "category"),
-    [(raw, Category.RAW), (application, Category.APPLICATION), (crypt, Category.CRYPT)],
-    ids=["raw", "application", "crypt"],
+    [
+        (raw, Category.RAW),
+        (application, Category.APPLICATION),
+        (crypt, Category.CRYPT),
+        (checksums, Category.CHECKSUM),
+    ],
+    ids=["raw", "application", "crypt", "checksums"],
 )
 def test_each_module_holds_one_category(module, category):
     assert module.SIGNATURES
     assert {sig.category for sig in module.SIGNATURES} == {category}
 
 
-def test_registry_order_is_unchanged_from_0_1_0():
-    assert [sig.name for sig in SIGNATURES] == [
-        "MD5",
-        "NTLM",
-        "SHA-1",
-        "SHA-224",
-        "SHA-256",
-        "SHA-512",
-        "MySQL 4.1+",
-        "md5crypt",
-        "sha512crypt",
-        "bcrypt",
-    ]

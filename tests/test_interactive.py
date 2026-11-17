@@ -67,7 +67,7 @@ def test_prompt_loops_until_an_empty_line(capsys, typed):
     _, out = run(capsys)
 
     assert len(prompts) == 4  # the whitespace-only line ends the session
-    assert out.count("Possible Hashes:") == 2
+    assert out.splitlines().count("Possible Hashes:") == 2
     assert "[+] bcrypt" in out
     assert "[-] No known hash format matched this input." in out
 
@@ -124,7 +124,7 @@ def test_no_match_hint_does_not_mention_shell_quoting(capsys, typed):
 def test_options_apply_to_every_result(capsys, typed):
     typed(MD5.example, "")
 
-    _, out = run(capsys, "--from", "windows", "--show-modes")
+    _, out = run(capsys, "--from", "windows", "--show-modes", "--possible-only")
 
     assert "[+] NTLM  (hashcat 1000 | john nt)\n[+] MD5   (hashcat 0 | john raw-md5)\n" in out
 
