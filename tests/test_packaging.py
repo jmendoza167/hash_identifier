@@ -54,3 +54,15 @@ def test_readme_badge_points_at_the_ci_workflow():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert f"actions/workflows/{WORKFLOW.name}/badge.svg" in readme
+
+
+def test_changelog_has_an_entry_for_the_current_version():
+    from hashident import __version__
+
+    changelog = ROOT / "CHANGELOG.md"
+    assert changelog.exists(), "CHANGELOG.md is missing"
+    assert re.search(
+        rf"^## \[{re.escape(__version__)}\] - \d{{4}}-\d{{2}}-\d{{2}}$",
+        changelog.read_text(encoding="utf-8"),
+        re.M,
+    ), f"CHANGELOG.md has no entry for {__version__}"

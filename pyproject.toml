@@ -34,6 +34,7 @@ dependencies = []
 [project.urls]
 Homepage = "https://github.com/jmendoza167/hash_identifier"
 Issues = "https://github.com/jmendoza167/hash_identifier/issues"
+Changelog = "https://github.com/jmendoza167/hash_identifier/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = ["pytest"]
