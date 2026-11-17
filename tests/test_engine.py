@@ -12,6 +12,7 @@ from hashident.signatures import (
     MYSQL41,
     NTLM,
     SHA1,
+    SHA256,
     SHA512CRYPT,
     SIGNATURES,
 )
@@ -728,3 +729,94 @@ def test_pwdump_line_is_recognised_whole():
     assert names(identify("guest:501:NO PASSWORD*********************:" + NTLM.example + ":::")) == [
         "pwdump"
     ]
+
+
+# --- Web applications, LDAP and encodings ------------------------------------------------
+
+MD5_HEX = "16780ba78d2d5f02f3202901c1b6d975"
+
+
+@pytest.mark.parametrize(
+    ("salt", "first"),
+    [
+        ("36", "osCommerce"),
+        ("568", "vBulletin < 3.8.5"),
+        ("47204", "MyBB / IPB"),
+        ("a8Kx2Lq9", "MyBB / IPB"),
+        ("181264250056774603641874043270", "vBulletin 3.8.5+"),
+        ("7050461", "md5($pass.$salt)"),
+    ],
+    ids=["2", "3", "5", "8", "30", "7"],
+)
+def test_salt_length_points_at_the_application(salt, first):
+    result = identify(f"{MD5_HEX}:{salt}")
+
+    assert possible(result)[0] == first
+    assert "md5($pass.$salt)" in possible(result)  # always still a candidate
+
+
+def test_jwt_is_pinned_by_its_header():
+    token = (
+        "eyJhbGciOiJIUzI1NiJ9.eyIzNDM2MzQyMCI6NTc2ODc1NDd9."
+        "f1nXZ3V_Hrr6ee-AFCTLaHRnrkiKmio2t3JqwL32guY"
+    )
+
+    result = identify(token)
+
+    assert names(result) == ["JWT"]
+    assert "starts with JWT prefix eyJ" in result.best.reasons
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("{SHA}uJ6qx+YUFzQbcQtyd2gpTQ5qJ3s=", "LDAP {SHA}"),
+        ("{sha}uJ6qx+YUFzQbcQtyd2gpTQ5qJ3s=", "LDAP {SHA}"),
+        ("{SSHA}AZKja92fbuuB9SpRlHqaoXxbTc43Mzc2MDM1Ng==", "LDAP {SSHA}"),
+        ("{ssha}AZKja92fbuuB9SpRlHqaoXxbTc43Mzc2MDM1Ng==", "LDAP {SSHA}"),
+        ("{SSHA256}OZiz0cnQ5hgyel3Emh7NCbhBRCQ+HVBwYplQunHYnER7TLuV", "LDAP {SSHA256}"),
+        ("{MD5}h0O1IGPNhAl6ZdFjP1x09Q==", "LDAP {MD5}"),
+        ("{SMD5}zXXWW6eICejpQqwFi7YVlnNhbHQ=", "LDAP {SMD5}"),
+    ],
+)
+def test_ldap_scheme_pins_the_format(value, expected):
+    assert names(identify(value)) == [expected]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("h0O1IGPNhAl6ZdFjP1x09Q==", "MD5 (Base64)"),
+        ("uJ6qx+YUFzQbcQtyd2gpTQ5qJ3s=", "SHA-1 (Base64)"),
+        ("En5vv+JKdQ5ykwwiCo4TgnVla45dj0ipjDyS3yyrqTU=", "SHA-256 (Base64)"),
+    ],
+)
+def test_base64_digest_is_recognised_by_its_padded_length(value, expected):
+    assert names(identify(value)) == [expected]
+
+
+def test_django_wrappers_are_not_reported_as_the_bare_format():
+    bcrypt_hash = "$2a$05$LhayLxezLhK1LhWvKxCyLOj0j1u.Kj0jZ0pEmm134uzrQlFvQJLF6"
+    argon2_hash = (
+        "$argon2id$v=19$m=65536,t=3,p=1$FBMjI4RJBhIykCgol1KEJA$"
+        "2ky5GAdhT1kH4kIgPN/oERE3Taiy43vNN70a3HpiKQU"
+    )
+
+    assert names(identify("bcrypt$" + bcrypt_hash)) == ["Django bcrypt"]
+    assert names(identify("bcrypt_sha256$" + bcrypt_hash)) == ["Django bcrypt-SHA256"]
+    assert names(identify("argon2" + argon2_hash)) == ["Django Argon2"]
+    assert names(identify(bcrypt_hash)) == ["bcrypt"]
+
+
+def test_pbkdf2_line_starting_with_md5_is_not_postgresql():
+    assert names(identify("md5:1000:MTg1MzA=:Lz84VOcrXd699Edsj34PP98+f4f3S0rTZ4kHAIHoAjs=")) == [
+        "PBKDF2-HMAC-MD5"
+    ]
+    assert names(identify("md5a6343a68d964ca596d9752250d54bb8a")) == ["PostgreSQL MD5"]
+
+
+def test_keccak_256_is_a_least_possible_reading_of_64_hex():
+    result = identify(SHA256.example)
+
+    assert possible(result) == ["SHA-256", "SHA3-256"]
+    assert {"Keccak-256", "SM3", "Streebog-256", "SHA-512/256"} <= set(least(result))

@@ -449,6 +449,7 @@ SHA3_512 = _raw(
     strength=_MODERATE,
     note=_SOUND,
     hashcat=17600,
+    john="raw-sha3",
 )
 
 BLAKE2B = _raw(
@@ -480,6 +481,177 @@ WHIRLPOOL = _raw(
     note=_SOUND,
     hashcat=6100,
     john="whirlpool",
+)
+
+# --- More digests that share the lengths above ---------------------------------
+
+SHA512_224 = _raw(
+    "SHA-512/224",
+    56,
+    _L,
+    12,
+    "6e8f8ef6b20f7ad1a75f5bac75585b5a98b890013d317a9b45f477d1",
+    summary="SHA-512 cut to 224 bits",
+    strength=_MODERATE,
+    note=_SHA2,
+)
+
+SHA512_256 = _raw(
+    "SHA-512/256",
+    64,
+    _L,
+    15,
+    "7bf80da439438473433145774c02ca78960b4135d5d4eb52c656cda2cb45010f",
+    summary="SHA-512 cut to 256 bits",
+    strength=_MODERATE,
+    note=_SHA2,
+)
+
+# Keccak as submitted to the SHA-3 competition; the standard changed the
+# padding, so its digests differ from SHA3-*.
+KECCAK224 = _raw(
+    "Keccak-224",
+    56,
+    _L,
+    15,
+    "e1dfad9bafeae6ef15f5bbb16cf4c26f09f5f1e7870581962fc84636",
+    strength=_MODERATE,
+    note=_SOUND,
+    hashcat=17700,
+)
+
+KECCAK256 = _raw(
+    "Keccak-256",
+    64,
+    _L,
+    28,
+    "203f88777f18bb4ee1226627b547808f38d90d3e106262b5de9ca943b57137b6",
+    summary="pre-standard SHA-3, used by Ethereum",
+    strength=_MODERATE,
+    note=_SOUND,
+    hashcat=17800,
+    john="raw-keccak-256",
+)
+
+KECCAK384 = _raw(
+    "Keccak-384",
+    96,
+    _L,
+    15,
+    (
+        "5804b7ada5806ba79540100e9a7ef493654ff2a21d94d4f2"
+        "ce4bf69abda5d94bf03701fe9525a15dfdc625bfbd769701"
+    ),
+    strength=_MODERATE,
+    note=_SOUND,
+    hashcat=17900,
+)
+
+KECCAK512 = _raw(
+    "Keccak-512",
+    128,
+    _L,
+    20,
+    (
+        "2fbf5c9080f0a704de2e915ba8fdae6ab00bbc026b2c1c8fa07da1239381c6b7"
+        "f4dfd399bf9652500da723694a4c719587dd0219cb30eabe61210a8ae4dc0b03"
+    ),
+    strength=_MODERATE,
+    note=_SOUND,
+    hashcat=18000,
+    john="raw-keccak",
+)
+
+SM3 = _raw(
+    "SM3",
+    64,
+    _L,
+    12,
+    "51227e48ea74827b77fc142c3ec21d25cc42c794e6ac422825cd47ad4ac7913d",
+    summary="Chinese national standard",
+    strength=_MODERATE,
+    note=_SOUND,
+    hashcat=31100,
+    john="raw-sm3",
+)
+
+STREEBOG256 = _raw(
+    "Streebog-256",
+    64,
+    _L,
+    12,
+    "57e9e50caec93d72e9498c211d6dc4f4d328248b48ecf46ba7abfa874f666e36",
+    summary="GOST R 34.11-2012",
+    strength=_MODERATE,
+    note=_SOUND,
+    hashcat=11700,
+    john="stribog-256",
+)
+
+STREEBOG512 = _raw(
+    "Streebog-512",
+    128,
+    _L,
+    15,
+    (
+        "5d5bdba48c8f89ee6c0a0e11023540424283e84902de08013aeeb626e819950b"
+        "b32842903593a1d2e8f71897ff7fe72e17ac9ba8ce1d1d2f7e9c4359ea63bdc3"
+    ),
+    summary="GOST R 34.11-2012",
+    strength=_MODERATE,
+    note=_SOUND,
+    hashcat=11800,
+    john="stribog-512",
+)
+
+# --- Digests written in base64 instead of hex ----------------------------------
+# The padding gives the digest size away: 22 characters and "==" are 16
+# bytes, 27 and "=" are 20, 43 and "=" are 32.
+
+_BASE64 = Charset.BASE64.char_class
+
+
+def _base64(name: str, characters: int, padding: str, example: str, strength: Strength, note: str):
+    return Signature(
+        name=name,
+        category=Category.RAW,
+        tier=_P,
+        pattern=rf"{_BASE64}{{{characters}}}{padding}",
+        length=characters + len(padding),
+        charset=Charset.BASE64,
+        summary="the raw digest in base64",
+        strength=strength,
+        strength_note=note,
+        example=example,
+        popularity=40,
+    )
+
+
+MD5_BASE64 = _base64(
+    "MD5 (Base64)",
+    22,
+    "==",
+    "h0O1IGPNhAl6ZdFjP1x09Q==",
+    _WEAK,
+    "Fast and unsalted: GPUs test billions of guesses per second.",
+)
+
+SHA1_BASE64 = _base64(
+    "SHA-1 (Base64)",
+    27,
+    "=",
+    "uJ6qx+YUFzQbcQtyd2gpTQ5qJ3s=",
+    _WEAK,
+    "Fast and unsalted, and collision-broken since 2017.",
+)
+
+SHA256_BASE64 = _base64(
+    "SHA-256 (Base64)",
+    43,
+    "=",
+    "En5vv+JKdQ5ykwwiCo4TgnVla45dj0ipjDyS3yyrqTU=",
+    _MODERATE,
+    _SHA2,
 )
 
 SIGNATURES: tuple[Signature, ...] = (
@@ -517,4 +689,16 @@ SIGNATURES: tuple[Signature, ...] = (
     SHA3_512,
     BLAKE2B,
     WHIRLPOOL,
+    SHA512_224,
+    SHA512_256,
+    KECCAK224,
+    KECCAK256,
+    KECCAK384,
+    KECCAK512,
+    SM3,
+    STREEBOG256,
+    STREEBOG512,
+    MD5_BASE64,
+    SHA1_BASE64,
+    SHA256_BASE64,
 )

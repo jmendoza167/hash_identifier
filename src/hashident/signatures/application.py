@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from hashident.models import Category, Charset, Context, Signature, Strength, Tier
 from hashident.signatures._shared import B64, BASE64, COLON_FIELD, WEB, WINDOWS, hex_chars
+from hashident.signatures.crypt import ARGON2, BCRYPT
 
 _P, _L = Tier.POSSIBLE, Tier.LEAST_POSSIBLE
 _WEAK, _MODERATE, _STRONG = Strength.WEAK, Strength.MODERATE, Strength.STRONG
@@ -188,6 +189,161 @@ DJANGO_PBKDF2 = _app(
     contexts=WEB,
 )
 
+DJANGO_BCRYPT = _app(
+    "Django bcrypt",
+    _P,
+    60,
+    "bcrypt$" + BCRYPT.example,
+    pattern=rf"bcrypt\${BCRYPT.pattern}",
+    length=67,
+    charset=Charset.CRYPT64,
+    prefixes=("bcrypt$",),
+    summary="a bcrypt hash behind Django's marker",
+    strength=_STRONG,
+    note=BCRYPT.strength_note,
+    hashcat=BCRYPT.hashcat_mode,
+    john=BCRYPT.john_format,
+    notes=("For hashcat and john, leave out the 'bcrypt$' in front.",),
+    contexts=WEB,
+)
+
+DJANGO_BCRYPT_SHA256 = _app(
+    "Django bcrypt-SHA256",
+    _P,
+    60,
+    "bcrypt_sha256$$2b$10$FxDtpTNaL303lLcWtd6LFO2U6Gc63VJ07qycHcfqbQQ71GhO/qSzu",
+    pattern=rf"bcrypt_sha256\${BCRYPT.pattern}",
+    length=74,
+    charset=Charset.CRYPT64,
+    prefixes=("bcrypt_sha256$",),
+    summary="bcrypt of the password's SHA-256",
+    strength=_STRONG,
+    note=BCRYPT.strength_note,
+    contexts=WEB,
+)
+
+DJANGO_ARGON2 = _app(
+    "Django Argon2",
+    _P,
+    60,
+    "argon2" + ARGON2.example,
+    pattern=rf"argon2{ARGON2.pattern}",
+    charset=Charset.BASE64,
+    prefixes=("argon2$",),
+    summary="an Argon2 hash behind Django's marker",
+    strength=_STRONG,
+    note=ARGON2.strength_note,
+    hashcat=ARGON2.hashcat_mode,
+    john=ARGON2.john_format,
+    notes=("For hashcat and john, leave out the 'argon2' in front, up to the '$'.",),
+    contexts=WEB,
+)
+
+# --- Forums, shops and tokens ---------------------------------------------------
+# The next four are salted MD5 written hash:salt. Each application uses a
+# salt of a set length, which is what tells them apart from the generic
+# salted formats; those stay listed after them.
+
+_ANY = "[!-~]"  # a printable character; these salts may hold a ':'
+
+DRUPAL7 = _app(
+    "Drupal 7",
+    _P,
+    60,
+    "$S$C33783772bRXEx1aCsvY.dqgaaSu76XmVlKrW9Qu8IQlvxHlmzLf",
+    pattern=rf"\$S\${B64}{{52}}",
+    length=55,
+    charset=Charset.CRYPT64,
+    prefixes=("$S$",),
+    summary="phpass with SHA-512",
+    strength=_STRONG,
+    note="Salted, with tens of thousands of SHA-512 rounds.",
+    hashcat=7900,
+    john="drupal7",
+    contexts=WEB,
+)
+
+
+def _forum(name, salt, popularity, example, *, summary, hashcat, john) -> Signature:
+    return _app(
+        name,
+        _P,
+        popularity,
+        example,
+        pattern=rf"{hex_chars(32)}:{salt}",
+        structure="hash:salt",
+        summary=summary,
+        strength=_WEAK,
+        note=_SALTED_ONCE,
+        hashcat=hashcat,
+        john=f"dynamic_{john}",
+        notes=(f"For john, write it as '$dynamic_{john}$', the hash, '$', then the salt.",),
+        contexts=WEB,
+    )
+
+
+OSCOMMERCE = _forum(
+    "osCommerce",
+    rf"{_ANY}{{2}}",
+    45,
+    "374996a5e8a5e57fd97d893f7df79824:36",
+    summary="xt:Commerce, md5($salt.$pass), 2-character salt",
+    hashcat=21,
+    john=4,
+)
+
+VBULLETIN = _forum(
+    "vBulletin < 3.8.5",
+    rf"{_ANY}{{3}}",
+    50,
+    "16780ba78d2d5f02f3202901c1b6d975:568",
+    summary="md5(md5($pass).$salt), 3-character salt",
+    hashcat=2611,
+    john=7,
+)
+
+VBULLETIN385 = _forum(
+    "vBulletin 3.8.5+",
+    rf"{_ANY}{{30}}",
+    50,
+    "bf366348c53ddcfbd16e63edfdd1eee6:181264250056774603641874043270",
+    summary="md5(md5($pass).$salt), 30-character salt",
+    hashcat=2711,
+    john=6,
+)
+
+MYBB_IPB = _forum(
+    "MyBB / IPB",
+    rf"{_ANY}{{5}}(?:{_ANY}{{3}})?",
+    45,
+    "8d2129083ef35f4b365d5d87487e1207:47204",
+    summary="md5(md5($salt).md5($pass)), 5 or 8-character salt",
+    hashcat=2811,
+    john=12,
+)
+
+# header.payload.signature, each in URL-safe base64. A JSON header always
+# encodes to something starting with "eyJ".
+JWT = _app(
+    "JWT",
+    _P,
+    80,
+    (
+        "eyJhbGciOiJIUzI1NiJ9.eyIzNDM2MzQyMCI6NTc2ODc1NDd9."
+        "f1nXZ3V_Hrr6ee-AFCTLaHRnrkiKmio2t3JqwL32guY"
+    ),
+    pattern=r"eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
+    charset=Charset.MIXED,
+    prefixes=("eyJ",),
+    summary="JSON Web Token signed with HMAC",
+    strength=_MODERATE,
+    note="The signature is one HMAC: a weak signing secret is guessed quickly.",
+    hashcat=16500,
+    john="hmac-sha256",
+    notes=("John's hmac-sha256 format takes HS256 tokens; hashcat also does HS384 and HS512.",),
+    contexts=WEB,
+)
+
 # --- Windows ------------------------------------------------------------------
 
 SAM = _app(
@@ -319,6 +475,15 @@ SIGNATURES: tuple[Signature, ...] = (
     DJANGO_SHA256,
     DJANGO_SHA384,
     DJANGO_PBKDF2,
+    DJANGO_BCRYPT,
+    DJANGO_BCRYPT_SHA256,
+    DJANGO_ARGON2,
+    DRUPAL7,
+    OSCOMMERCE,
+    VBULLETIN,
+    VBULLETIN385,
+    MYBB_IPB,
+    JWT,
     SAM,
     PWDUMP,
     DCC,

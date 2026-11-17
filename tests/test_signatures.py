@@ -96,8 +96,11 @@ def test_mysql_example_is_double_sha1_of_hashcat():
     ("length", "expected"),
     [
         (4, {"CRC-16", "CRC-16-CCITT", "FCS-16"}),
-        (8, {"CRC-32B", "CRC-32", "Adler-32", "GHash-32-3", "GHash-32-5", "XOR-32"}),
-        (16, {"MySQL323", "MD5(Half)", "MD5(Middle)"}),
+        (
+            8,
+            {"CRC-32B", "CRC-32", "Adler-32", "FNV-32", "GHash-32-3", "GHash-32-5", "XOR-32"},
+        ),
+        (16, {"MySQL323", "MD5(Half)", "MD5(Middle)", "CRC-64", "FNV-64"}),
         (
             32,
             {
@@ -140,7 +143,7 @@ def test_mysql_example_is_double_sha1_of_hashcat():
             },
         ),
         (48, {"Tiger-192", "HAVAL-192"}),
-        (56, {"SHA-224", "SHA3-224", "HAVAL-224"}),
+        (56, {"SHA-224", "SHA3-224", "HAVAL-224", "SHA-512/224", "Keccak-224"}),
         (
             64,
             {
@@ -151,6 +154,10 @@ def test_mysql_example_is_double_sha1_of_hashcat():
                 "RIPEMD-256",
                 "HAVAL-256",
                 "Snefru-256",
+                "SHA-512/256",
+                "Keccak-256",
+                "SM3",
+                "Streebog-256",
                 "sha256($pass.$salt)",
                 "sha256($salt.$pass)",
                 "HMAC-SHA256 (key = $pass)",
@@ -158,7 +165,7 @@ def test_mysql_example_is_double_sha1_of_hashcat():
             },
         ),
         (80, {"RIPEMD-320"}),
-        (96, {"SHA-384", "SHA3-384"}),
+        (96, {"SHA-384", "SHA3-384", "Keccak-384"}),
         (
             128,
             {
@@ -166,6 +173,8 @@ def test_mysql_example_is_double_sha1_of_hashcat():
                 "SHA3-512",
                 "BLAKE2b-512",
                 "Whirlpool",
+                "Keccak-512",
+                "Streebog-512",
                 "sha512($pass.$salt)",
                 "sha512($salt.$pass)",
                 "HMAC-SHA512 (key = $pass)",
@@ -221,6 +230,7 @@ from hashident.signatures import (  # noqa: E402
     checksums,
     crypt,
     databases,
+    ldap,
     network,
     raw,
     salted,
@@ -265,6 +275,7 @@ def test_registry_is_the_category_modules_in_order():
         + application.SIGNATURES
         + databases.SIGNATURES
         + network.SIGNATURES
+        + ldap.SIGNATURES
         + crypt.SIGNATURES
         + checksums.SIGNATURES
     )
@@ -278,10 +289,11 @@ def test_registry_is_the_category_modules_in_order():
         (application, Category.APPLICATION),
         (databases, Category.APPLICATION),
         (network, Category.APPLICATION),
+        (ldap, Category.APPLICATION),
         (crypt, Category.CRYPT),
         (checksums, Category.CHECKSUM),
     ],
-    ids=["raw", "salted", "application", "databases", "network", "crypt", "checksums"],
+    ids=["raw", "salted", "application", "databases", "network", "ldap", "crypt", "checksums"],
 )
 def test_each_module_holds_one_category(module, category):
     assert module.SIGNATURES

@@ -218,6 +218,91 @@ GOST_YESCRYPT = _crypt(
     hashcat=36200,
 )
 
+# --- PBKDF2 ---------------------------------------------------------------------
+
+_PBKDF2_NOTE = "Salted PBKDF2 with a tunable iteration count."
+_AB64 = "[./0-9A-Za-z]"  # passlib's adapted base64: '.' for '+', no padding
+
+
+def _passlib(digest: str, tag: str, characters: int, example: str, hashcat: int, john=None):
+    """``$tag$rounds$salt$hash``, as Python's passlib writes PBKDF2."""
+    return _crypt(
+        f"passlib PBKDF2-{digest}",
+        60,
+        example,
+        pattern=rf"\${tag}\$[0-9]+\${_AB64}+\${_AB64}{{{characters}}}",
+        prefixes=(f"${tag}$",),
+        summary=f"${tag}$",
+        strength=_STRONG,
+        note=_PBKDF2_NOTE,
+        hashcat=hashcat,
+        john=john,
+        contexts=WEB,
+    )
+
+
+PASSLIB_PBKDF2_SHA256 = _passlib(
+    "SHA256",
+    "pbkdf2-sha256",
+    43,
+    "$pbkdf2-sha256$29000$x9h7j/Ge8x6DMEao1VqrdQ$kra3R1wEnY8mPdDWOpTqOTINaAmZvRMcYd8u5OBQP9A",
+    20300,
+    john="pbkdf2-hmac-sha256",
+)
+
+PASSLIB_PBKDF2_SHA512 = _passlib(
+    "SHA512",
+    "pbkdf2-sha512",
+    86,
+    (
+        "$pbkdf2-sha512$25000$LyWE0HrP2RsjZCxlDGFMKQ$1vC5Ohk2mCS9b6akqsEfgeb4l74SF8XjH"
+        ".SljXf3dMLHdlY1GK9ojcCKts6/asR4aPqBmk74nCDddU3tvSCJvw"
+    ),
+    20200,
+)
+
+PASSLIB_PBKDF2_SHA1 = _passlib(
+    "SHA1",
+    "pbkdf2",
+    27,
+    "$pbkdf2$131000$r5WythYixPgfQ2jt3buXcg$8Kdr.QQEOaZIXNOrrru36I/.6Po",
+    20400,
+)
+
+
+def _pbkdf2_line(digest: str, tag: str, example: str, hashcat: int) -> Signature:
+    """``tag:rounds:salt:hash`` with salt and hash in base64, as Hashcat reads it."""
+    return _crypt(
+        f"PBKDF2-HMAC-{digest}",
+        50,
+        example,
+        pattern=rf"{tag}:[0-9]+:{BASE64}+={{0,2}}:{BASE64}+={{0,2}}",
+        charset=Charset.BASE64,
+        prefixes=(f"{tag}:",),
+        summary=f"{tag}:rounds:salt:hash",
+        strength=_STRONG,
+        note=_PBKDF2_NOTE,
+        hashcat=hashcat,
+        contexts=WEB,
+    )
+
+
+PBKDF2_SHA256 = _pbkdf2_line(
+    "SHA256", "sha256", "sha256:1000:MTc3MTA0MTQwMjQxNzY=:PYjCU215Mi57AYPKva9j7mvF4Rc5bCnt", 10900
+)
+
+PBKDF2_SHA1 = _pbkdf2_line(
+    "SHA1", "sha1", "sha1:1000:MzU4NTA4MzIzNzA1MDQ=:19ofiY+ahBXhvkDsp0j2ww==", 12000
+)
+
+PBKDF2_SHA512 = _pbkdf2_line(
+    "SHA512", "sha512", "sha512:1000:ODQyMDEwNjQyODY=:MKaHNWXUsuJB3IEwBHbm3w==", 12100
+)
+
+PBKDF2_MD5 = _pbkdf2_line(
+    "MD5", "md5", "md5:1000:MTg1MzA=:Lz84VOcrXd699Edsj34PP98+f4f3S0rTZ4kHAIHoAjs=", 11900
+)
+
 SIGNATURES: tuple[Signature, ...] = (
     MD5CRYPT,
     SHA512CRYPT,
@@ -230,4 +315,11 @@ SIGNATURES: tuple[Signature, ...] = (
     SCRYPT_UNIX,
     YESCRYPT,
     GOST_YESCRYPT,
+    PASSLIB_PBKDF2_SHA256,
+    PASSLIB_PBKDF2_SHA512,
+    PASSLIB_PBKDF2_SHA1,
+    PBKDF2_SHA256,
+    PBKDF2_SHA1,
+    PBKDF2_SHA512,
+    PBKDF2_MD5,
 )

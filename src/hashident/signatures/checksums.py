@@ -1,9 +1,10 @@
 """Checksums: error-detecting codes, not cryptographic hashes.
 
 They are here because short hex strings turn up next to real hashes and are
-worth naming. Every view labels them as checksums. With 4 or 8 hex
-characters there is nothing but the length to go on, so these are always
-shape matches.
+worth naming. Every view labels them as checksums. That includes FNV, a
+hash-table hash, which is no more a password hash than a CRC is. With 4, 8
+or 16 hex characters there is nothing but the length to go on, so these are
+always shape matches.
 """
 
 from __future__ import annotations
@@ -85,6 +86,26 @@ GHASH32_5 = _checksum("GHash-32-5", 8, _L, 10, "9e3f7a15")
 
 XOR32 = _checksum("XOR-32", 8, _L, 10, "0000003f")
 
+FNV32 = _checksum("FNV-32", 8, _L, 8, "bec89813", summary="FNV-1 or FNV-1a")
+
+# --- 16 hex characters --------------------------------------------------------
+
+CRC64 = _checksum(
+    "CRC-64",
+    16,
+    _L,
+    10,
+    "b679f6ae9523df03",
+    summary="ECMA-182, Jones",
+    hashcat=28000,
+    notes=(
+        "Hashcat mode 28000 is the Jones variant (used by Redis) and wants ':' and "
+        "the starting value after the checksum.",
+    ),
+)
+
+FNV64 = _checksum("FNV-64", 16, _L, 8, "4e95d388486c8013", summary="FNV-1 or FNV-1a")
+
 SIGNATURES: tuple[Signature, ...] = (
     CRC16,
     CRC16_CCITT,
@@ -95,4 +116,7 @@ SIGNATURES: tuple[Signature, ...] = (
     GHASH32_3,
     GHASH32_5,
     XOR32,
+    FNV32,
+    CRC64,
+    FNV64,
 )

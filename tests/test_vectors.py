@@ -115,6 +115,29 @@ def dcc2(password: bytes, username: str, rounds: int) -> str:
     return hashlib.pbkdf2_hmac("sha1", dcc(password, username), salt, rounds, 16).hex()
 
 
+def fnv1a(data: bytes, bits: int) -> str:
+    """FNV-1a, 32 or 64 bits."""
+    prime, value = {32: (0x01000193, 0x811C9DC5), 64: (0x100000001B3, 0xCBF29CE484222325)}[bits]
+    for byte in data:
+        value = ((value ^ byte) * prime) & ((1 << bits) - 1)
+    return f"{value:0{bits // 4}x}"
+
+
+def test_fnv1a_reference_matches_the_published_values_for_a():
+    assert fnv1a(b"a", 32) == "e40c292c"
+    assert fnv1a(b"a", 64) == "af63dc4c8601ec8c"
+
+
+def ab64_decode(text: str) -> bytes:
+    """passlib's "adapted base64": '.' for '+', and no padding."""
+    text = text.replace(".", "+")
+    return base64.b64decode(text + "=" * (-len(text) % 4))
+
+
+def ab64_encode(data: bytes) -> str:
+    return base64.b64encode(data).decode().rstrip("=").replace("+", ".")
+
+
 CISCO7_KEY = b"dsfd;kfoA,.iyewrkldJKDHSUBsgvca69834ncxv9873254k;fg87"
 
 
@@ -135,6 +158,7 @@ CRC16_CCITT_FALSE = dict(width=16, poly=0x1021, init=0xFFFF, reflect=False, xoro
 CRC16_X25 = dict(width=16, poly=0x1021, init=0xFFFF, reflect=True, xorout=0xFFFF)
 CRC32_BZIP2 = dict(width=32, poly=0x04C11DB7, init=0xFFFFFFFF, reflect=False, xorout=0xFFFFFFFF)
 CRC32_ZLIB = dict(width=32, poly=0x04C11DB7, init=0xFFFFFFFF, reflect=True, xorout=0xFFFFFFFF)
+CRC64_ECMA = dict(width=64, poly=0x42F0E1EBA9EA3693, init=0, reflect=False, xorout=0)
 
 
 def test_md4_reference_matches_rfc_1320():
@@ -151,8 +175,9 @@ def test_md4_reference_matches_rfc_1320():
         (CRC16_X25, "906e"),
         (CRC32_BZIP2, "fc891918"),
         (CRC32_ZLIB, "cbf43926"),
+        (CRC64_ECMA, "6c40df5f0b497347"),
     ],
-    ids=["arc", "ccitt-false", "x25", "bzip2", "zlib"],
+    ids=["arc", "ccitt-false", "x25", "bzip2", "zlib", "ecma-182"],
 )
 def test_crc_reference_matches_the_catalogue_check_values(model, check):
     # The check value of a CRC is its result for the ASCII digits 1 to 9.
@@ -212,6 +237,52 @@ def _b64(data: bytes) -> str:
 
 
 JOHN = "John the Ripper test vector"
+
+
+def base64_digest(algorithm: str, prefix: str = "") -> Computed:
+    return Computed(lambda: prefix + _b64(hashlib.new(algorithm, PASSWORD).digest()))
+
+
+def ldap_salted(name: str, scheme: str, algorithm: str) -> Computed:
+    """``{SCHEME}`` then base64 of digest + salt; the salt is read from the example."""
+
+    def compute() -> str:
+        size = hashlib.new(algorithm).digest_size
+        salt = base64.b64decode(get_signature(name).example[len(scheme) :])[size:]
+        assert salt, "the example has no salt"
+        return scheme + _b64(hashlib.new(algorithm, PASSWORD + salt).digest() + salt)
+
+    return Computed(compute)
+
+
+def pbkdf2_line(name: str, algorithm: str) -> Computed:
+    """Hashcat's ``algorithm:rounds:salt:hash`` line, salt and hash in base64."""
+
+    def compute() -> str:
+        tag, rounds, salt, digest = get_signature(name).example.split(":")
+        size = len(base64.b64decode(digest))
+        key = hashlib.pbkdf2_hmac(algorithm, PASSWORD, base64.b64decode(salt), int(rounds), size)
+        return f"{tag}:{rounds}:{salt}:{_b64(key)}"
+
+    return Computed(compute)
+
+
+def passlib_pbkdf2(name: str, algorithm: str) -> Computed:
+    """passlib's ``$pbkdf2-digest$rounds$salt$hash``; cost and salt come from the example."""
+
+    def compute() -> str:
+        _, tag, rounds, salt, digest = get_signature(name).example.split("$")
+        size = len(ab64_decode(digest))
+        key = hashlib.pbkdf2_hmac(algorithm, PASSWORD, ab64_decode(salt), int(rounds), size)
+        return f"${tag}${rounds}${salt}${ab64_encode(key)}"
+
+    return Computed(compute)
+
+
+def _jwt() -> str:
+    signing_input = "eyJhbGciOiJIUzI1NiJ9.eyIzNDM2MzQyMCI6NTc2ODc1NDd9"
+    mac = hmac.new(PASSWORD, signing_input.encode(), "sha256").digest()
+    return signing_input + "." + base64.urlsafe_b64encode(mac).rstrip(b"=").decode()
 
 
 UNDOCUMENTED = "listed by classic hash identifiers, but no specification or vector was found"
@@ -288,6 +359,57 @@ VECTORS: dict[str, tuple[Tier, Computed | Published | ShapeOnly]] = {
     "sha512($salt.$pass)": (P, salted("sha512", "2613516180127", salt_first=True)),
     "HMAC-SHA512 (key = $pass)": (L, keyed("sha512", "1234", key_is_password=True)),
     "HMAC-SHA512 (key = $salt)": (L, keyed("sha512", "1234", key_is_password=False)),
+    # More raw digests and encodings
+    "SHA-512/224": (L, digest("sha512_224")),
+    "SHA-512/256": (L, digest("sha512_256")),
+    "Keccak-224": (L, Published(f"{HASHCAT}, mode 17700")),
+    "Keccak-256": (L, Published(f"{HASHCAT}, mode 17800")),
+    "Keccak-384": (L, Published(f"{HASHCAT}, mode 17900")),
+    "Keccak-512": (L, Published(f"{HASHCAT}, mode 18000")),
+    "SM3": (L, digest("sm3")),
+    "Streebog-256": (L, Published(f"{HASHCAT}, mode 11700")),
+    "Streebog-512": (L, Published(f"{HASHCAT}, mode 11800")),
+    "MD5 (Base64)": (P, base64_digest("md5")),
+    "SHA-1 (Base64)": (P, base64_digest("sha1")),
+    "SHA-256 (Base64)": (P, base64_digest("sha256")),
+    # More checksums
+    "CRC-64": (L, Computed(lambda: crc(PASSWORD, **CRC64_ECMA))),
+    "FNV-32": (L, Computed(lambda: fnv1a(PASSWORD, 32))),
+    "FNV-64": (L, Computed(lambda: fnv1a(PASSWORD, 64))),
+    # LDAP
+    "LDAP {SHA}": (P, base64_digest("sha1", "{SHA}")),
+    "LDAP {SSHA}": (P, ldap_salted("LDAP {SSHA}", "{SSHA}", "sha1")),
+    "LDAP {SSHA256}": (P, ldap_salted("LDAP {SSHA256}", "{SSHA256}", "sha256")),
+    "LDAP {SSHA512}": (P, ldap_salted("LDAP {SSHA512}", "{SSHA512}", "sha512")),
+    "LDAP {MD5}": (P, base64_digest("md5", "{MD5}")),
+    "LDAP {SMD5}": (P, ldap_salted("LDAP {SMD5}", "{SMD5}", "md5")),
+    # Web applications
+    "Drupal 7": (P, Published(f"{HASHCAT}, mode 7900")),
+    "vBulletin < 3.8.5": (
+        P,
+        Computed(lambda: hashlib.md5(_hex("md5") + b"568").hexdigest() + ":568"),
+    ),
+    "vBulletin 3.8.5+": (
+        P,
+        Computed(
+            lambda: hashlib.md5(_hex("md5") + b"181264250056774603641874043270").hexdigest()
+            + ":181264250056774603641874043270"
+        ),
+    ),
+    "MyBB / IPB": (
+        P,
+        Computed(
+            lambda: hashlib.md5(_hex("md5", b"47204") + _hex("md5")).hexdigest() + ":47204"
+        ),
+    ),
+    "osCommerce": (P, salted("md5", "36", salt_first=True)),
+    "JWT": (P, Computed(_jwt)),
+    "Django bcrypt": (P, Published(f"{HASHCAT}, mode 3200, with Django's bcrypt$ in front")),
+    "Django bcrypt-SHA256": (
+        P,
+        Published(f"{HASHCAT}, mode 30600 (bcrypt of a SHA-256), with Django's marker in front"),
+    ),
+    "Django Argon2": (P, Published(f"{HASHCAT}, mode 34000, with Django's argon2 in front")),
     # Application formats
     "MySQL323": (P, Computed(lambda: mysql323(PASSWORD))),
     "WordPress (phpass)": (P, Published(f"{HASHCAT}, mode 400")),
@@ -406,6 +528,13 @@ VECTORS: dict[str, tuple[Tier, Computed | Published | ShapeOnly]] = {
         ),
     ),
     "scrypt (Unix)": (P, Published(f"{JOHN}, scrypt format (plaintext: pleaseletmein)")),
+    "passlib PBKDF2-SHA256": (P, passlib_pbkdf2("passlib PBKDF2-SHA256", "sha256")),
+    "passlib PBKDF2-SHA512": (P, passlib_pbkdf2("passlib PBKDF2-SHA512", "sha512")),
+    "passlib PBKDF2-SHA1": (P, passlib_pbkdf2("passlib PBKDF2-SHA1", "sha1")),
+    "PBKDF2-HMAC-SHA256": (P, pbkdf2_line("PBKDF2-HMAC-SHA256", "sha256")),
+    "PBKDF2-HMAC-SHA1": (P, pbkdf2_line("PBKDF2-HMAC-SHA1", "sha1")),
+    "PBKDF2-HMAC-SHA512": (P, pbkdf2_line("PBKDF2-HMAC-SHA512", "sha512")),
+    "PBKDF2-HMAC-MD5": (P, pbkdf2_line("PBKDF2-HMAC-MD5", "md5")),
     "yescrypt": (P, Published(f"{HASHCAT}, mode 36100")),
     "gost-yescrypt": (P, Published(f"{HASHCAT}, mode 36200")),
     "sha512crypt": (P, Published(f"{HASHCAT}, mode 1800")),
@@ -425,7 +554,13 @@ def test_every_signature_has_a_vector_and_nothing_else_does():
 def test_computed_example_is_the_hash_of_hashcat(name):
     origin = VECTORS[name][1]
 
-    assert get_signature(name).example == origin.compute()
+    try:
+        expected = origin.compute()
+    except ValueError as exc:
+        if "unsupported hash type" not in str(exc):
+            raise
+        pytest.skip(f"this Python's hashlib cannot compute it: {exc}")
+    assert get_signature(name).example == expected
 
 
 def test_ripemd160_example_is_the_hash_of_hashcat():

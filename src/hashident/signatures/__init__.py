@@ -4,7 +4,7 @@
 together from modules that each hold plain ``Signature`` entries of one
 category: ``raw``, ``salted``, ``crypt`` and ``checksums``, and for the
 application category ``application`` (web applications, Windows, games),
-``databases`` and ``network`` (network devices and protocols).
+``databases``, ``network`` (network devices and protocols) and ``ldap``.
 
 Adding a format
 ---------------
@@ -52,6 +52,7 @@ from hashident.signatures import (
     checksums,
     crypt,
     databases,
+    ldap,
     network,
     raw,
     salted,
@@ -82,6 +83,7 @@ SIGNATURES: tuple[Signature, ...] = (
     + application.SIGNATURES
     + databases.SIGNATURES
     + network.SIGNATURES
+    + ldap.SIGNATURES
     + crypt.SIGNATURES
     + checksums.SIGNATURES
 )

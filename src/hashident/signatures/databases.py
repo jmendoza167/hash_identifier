@@ -205,6 +205,7 @@ POSTGRESQL_SCRAM = _db(
     strength=_STRONG,
     note="Salted PBKDF2-SHA256 with a tunable iteration count (4,096 by default).",
     hashcat=28600,
+    john="scram-pbkdf2-sha256",
 )
 
 SIGNATURES: tuple[Signature, ...] = (

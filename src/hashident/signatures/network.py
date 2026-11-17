@@ -251,6 +251,7 @@ KRB5_TGS_AES = _kerberos(
     _examples.KRB5_TGS_18,
     summary="Kerberoasting, etype 17 or 18",
     hashcat=19700,
+    john="krb5tgs-sha1",
     notes=(_aes_note(19600),),
 )
 
@@ -271,6 +272,7 @@ KRB5_ASREP_AES = _kerberos(
     _examples.KRB5_ASREP_18,
     summary="AS-REP roasting, etype 17 or 18",
     hashcat=32200,
+    john="krb5asrep",
     notes=(_aes_note(32100),),
 )
 
@@ -291,6 +293,7 @@ KRB5_PA_AES = _kerberos(
     _examples.KRB5_PA_18,
     summary="AS-REQ timestamp, etype 17 or 18",
     hashcat=19900,
+    john="krb5pa-sha1",
     notes=(_aes_note(19800),),
 )
 

@@ -448,9 +448,21 @@ format; `--show-modes` prints them next to each match.
 | RIPEMD-320 | 33600 | - | Moderate |
 | SHA-384 | 10800 | `raw-sha384` | Moderate |
 | SHA3-384 | 17500 | - | Moderate |
-| SHA3-512 | 17600 | - | Moderate |
+| SHA3-512 | 17600 | `raw-sha3` | Moderate |
 | BLAKE2b-512 | 600 | `raw-blake2` | Moderate |
 | Whirlpool | 6100 | `whirlpool` | Moderate |
+| SHA-512/224 | - | - | Moderate |
+| SHA-512/256 | - | - | Moderate |
+| Keccak-224 | 17700 | - | Moderate |
+| Keccak-256 | 17800 | `raw-keccak-256` | Moderate |
+| Keccak-384 | 17900 | - | Moderate |
+| Keccak-512 | 18000 | `raw-keccak` | Moderate |
+| SM3 | 31100 | `raw-sm3` | Moderate |
+| Streebog-256 | 11700 | `stribog-256` | Moderate |
+| Streebog-512 | 11800 | `stribog-512` | Moderate |
+| MD5 (Base64) | - | - | Weak |
+| SHA-1 (Base64) | - | - | Weak |
+| SHA-256 (Base64) | - | - | Moderate |
 
 ### Salted and nested hashes
 
@@ -490,6 +502,15 @@ format; `--show-modes` prints them next to each match.
 | Django SHA-256 | - | - | Moderate |
 | Django SHA-384 | - | - | Moderate |
 | Django PBKDF2-SHA256 | 10000 | `django` | Strong |
+| Django bcrypt | 3200 | `bcrypt` | Strong |
+| Django bcrypt-SHA256 | - | - | Strong |
+| Django Argon2 | 34000 | `argon2` | Strong |
+| Drupal 7 | 7900 | `drupal7` | Strong |
+| osCommerce | 21 | `dynamic_4` | Weak |
+| vBulletin < 3.8.5 | 2611 | `dynamic_7` | Weak |
+| vBulletin 3.8.5+ | 2711 | `dynamic_6` | Weak |
+| MyBB / IPB | 2811 | `dynamic_12` | Weak |
+| JWT | 16500 | `hmac-sha256` | Moderate |
 | SAM (LM:NT) | 1000 | `nt` | Weak |
 | pwdump | 1000 | `nt` | Weak |
 | Domain Cached Credentials | 1100 | `mscash` | Weak |
@@ -505,7 +526,7 @@ format; `--show-modes` prints them next to each match.
 | Oracle 11g | 112 | `oracle11` | Weak |
 | Oracle 12c | 12300 | `oracle12c` | Strong |
 | PostgreSQL MD5 | 12 | - | Weak |
-| PostgreSQL SCRAM-SHA-256 | 28600 | - | Strong |
+| PostgreSQL SCRAM-SHA-256 | 28600 | `scram-pbkdf2-sha256` | Strong |
 | Cisco type 4 | 5700 | - | Weak |
 | Cisco type 7 | - | - | Weak |
 | Cisco type 8 | 9200 | - | Strong |
@@ -515,13 +536,19 @@ format; `--show-modes` prints them next to each match.
 | NetNTLMv1 | 5500 | `netntlm` | Weak |
 | NetNTLMv2 | 5600 | `netntlmv2` | Weak |
 | Kerberos 5 TGS-REP etype 23 | 13100 | `krb5tgs` | Weak |
-| Kerberos 5 TGS-REP AES | 19700 | - | Moderate |
+| Kerberos 5 TGS-REP AES | 19700 | `krb5tgs-sha1` | Moderate |
 | Kerberos 5 AS-REP etype 23 | 18200 | `krb5asrep` | Weak |
-| Kerberos 5 AS-REP AES | 32200 | - | Moderate |
+| Kerberos 5 AS-REP AES | 32200 | `krb5asrep` | Moderate |
 | Kerberos 5 Pre-Auth etype 23 | 7500 | `krb5pa-md5` | Weak |
-| Kerberos 5 Pre-Auth AES | 19900 | - | Moderate |
+| Kerberos 5 Pre-Auth AES | 19900 | `krb5pa-sha1` | Moderate |
 | WPA PMKID/EAPOL | 22000 | - | Moderate |
 | WPA PMKID (legacy) | 16800 | - | Moderate |
+| LDAP {SHA} | 101 | `raw-sha1` | Weak |
+| LDAP {SSHA} | 111 | `salted-sha1` | Weak |
+| LDAP {SSHA256} | 1411 | - | Moderate |
+| LDAP {SSHA512} | 1711 | `ssha512` | Moderate |
+| LDAP {MD5} | - | - | Weak |
+| LDAP {SMD5} | - | - | Weak |
 
 ### crypt and key-derivation formats
 
@@ -538,6 +565,13 @@ format; `--show-modes` prints them next to each match.
 | scrypt (Unix) | 36300 | `scrypt` | Strong |
 | yescrypt | 36100 | `crypt` | Strong |
 | gost-yescrypt | 36200 | - | Strong |
+| passlib PBKDF2-SHA256 | 20300 | `pbkdf2-hmac-sha256` | Strong |
+| passlib PBKDF2-SHA512 | 20200 | - | Strong |
+| passlib PBKDF2-SHA1 | 20400 | - | Strong |
+| PBKDF2-HMAC-SHA256 | 10900 | - | Strong |
+| PBKDF2-HMAC-SHA1 | 12000 | - | Strong |
+| PBKDF2-HMAC-SHA512 | 12100 | - | Strong |
+| PBKDF2-HMAC-MD5 | 11900 | - | Strong |
 
 ### Checksums (not cryptographic hashes)
 
@@ -552,6 +586,9 @@ format; `--show-modes` prints them next to each match.
 | GHash-32-3 | - | - | Weak |
 | GHash-32-5 | - | - | Weak |
 | XOR-32 | - | - | Weak |
+| FNV-32 | - | - | Weak |
+| CRC-64 | 28000 | - | Weak |
+| FNV-64 | - | - | Weak |
 <!-- formats-table: end -->
 
 Many formats share a shape: 32 hex characters fit MD5, NTLM, LM, MD4 and
