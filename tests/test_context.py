@@ -113,7 +113,7 @@ def test_no_context_matches_step_5_results():
         (
             "NTLM",
             60.0,
-            Confidence.LOW,
+            Confidence.MEDIUM,
             (
                 "32 hexadecimal characters",
                 "less common than MD5 with this shape",

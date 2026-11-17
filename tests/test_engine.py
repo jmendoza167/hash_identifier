@@ -3,7 +3,7 @@
 import pytest
 
 from hashident.context import CONTEXT_BOOST
-from hashident.engine import MEDIUM_MAX_GAP, identify
+from hashident.engine import identify
 from hashident.models import Category, Confidence, Context, Signature, Strength, Tier
 from hashident.signatures import (
     BCRYPT,
@@ -26,8 +26,9 @@ def test_md5_example_ranks_md5_then_ntlm_and_neither_is_high():
 
     assert names(result) == ["MD5", "NTLM"]
     md5, ntlm = result.candidates
-    assert md5.confidence is Confidence.MEDIUM
-    assert ntlm.confidence is Confidence.LOW
+    # Both are usual answers for 32 hex characters, so both are "possible".
+    assert (md5.tier, ntlm.tier) == (Tier.POSSIBLE, Tier.POSSIBLE)
+    assert (md5.confidence, ntlm.confidence) == (Confidence.MEDIUM, Confidence.MEDIUM)
     assert md5.score > ntlm.score
 
 
@@ -76,17 +77,34 @@ def test_every_candidate_has_a_reason(sig):
         assert candidate.reasons, candidate.signature.name
 
 
-def _fake(name, popularity):
+def _fake(
+    name,
+    popularity=50,
+    *,
+    tier=Tier.POSSIBLE,
+    pattern=r"x+",
+    example="xxx",
+    prefixes=(),
+    structure=None,
+    contexts=(),
+):
     return Signature(
         name=name,
         category=Category.RAW,
-        tier=Tier.POSSIBLE,
-        pattern=r"x+",
+        tier=tier,
+        pattern=pattern,
+        prefixes=prefixes,
+        structure=structure,
         strength=Strength.WEAK,
         strength_note="test",
-        example="xxx",
+        example=example,
         popularity=popularity,
+        contexts=frozenset(contexts),
     )
+
+
+def tiers(result):
+    return [c.tier for c in result.candidates]
 
 
 def test_equal_scores_are_ordered_by_name():
@@ -96,15 +114,176 @@ def test_equal_scores_are_ordered_by_name():
     assert all(c.confidence is Confidence.MEDIUM for c in result.candidates)
 
 
-@pytest.mark.parametrize(
-    ("gap", "expected"),
-    [(MEDIUM_MAX_GAP, Confidence.MEDIUM), (MEDIUM_MAX_GAP + 1, Confidence.LOW)],
-)
-def test_runner_up_confidence_depends_on_gap_from_top(gap, expected):
-    result = identify("xxx", signatures=[_fake("Top", 80), _fake("Runner", 80 - gap)])
+# --- Tiers ----------------------------------------------------------------------
 
-    assert result.candidates[0].confidence is Confidence.MEDIUM
-    assert result.candidates[1].confidence is expected
+
+def test_possible_tier_ranks_above_least_possible_whatever_the_popularity():
+    rare = _fake("Rare", 90, tier=Tier.LEAST_POSSIBLE)
+    common = _fake("Common", 50)
+
+    result = identify("xxx", signatures=[rare, common])
+
+    assert names(result) == ["Common", "Rare"]
+    assert tiers(result) == [Tier.POSSIBLE, Tier.LEAST_POSSIBLE]
+
+
+def test_candidates_are_ordered_by_score_within_each_tier():
+    sigs = [
+        _fake("Rare-low", 10, tier=Tier.LEAST_POSSIBLE),
+        _fake("Common-low", 40),
+        _fake("Rare-high", 30, tier=Tier.LEAST_POSSIBLE),
+        _fake("Common-high", 80),
+    ]
+
+    assert names(identify("xxx", signatures=sigs)) == [
+        "Common-high",
+        "Common-low",
+        "Rare-high",
+        "Rare-low",
+    ]
+
+
+def test_confidence_follows_the_tier_when_several_formats_match():
+    sigs = [_fake("A", 90), _fake("B", 10), _fake("C", 80, tier=Tier.LEAST_POSSIBLE)]
+
+    result = identify("xxx", signatures=sigs)
+
+    assert [c.confidence for c in result.candidates] == [
+        Confidence.MEDIUM,
+        Confidence.MEDIUM,  # far behind A on popularity, but still "possible"
+        Confidence.LOW,
+    ]
+
+
+def test_a_sole_match_is_high_confidence():
+    result = identify("xxx", signatures=[_fake("Only", 20)])
+
+    assert result.best.confidence is Confidence.HIGH
+    assert "no other known format has this shape" in result.best.reasons
+
+
+def test_least_possible_candidate_says_it_is_less_common_than_the_leader():
+    sigs = [_fake("Common", 50), _fake("Rare", 20, tier=Tier.LEAST_POSSIBLE)]
+
+    rare = identify("xxx", signatures=sigs).candidates[1]
+
+    assert "less common than Common with this shape" in rare.reasons
+
+
+def test_context_hint_reorders_within_a_tier_but_never_across_tiers():
+    common = _fake("Common", 50)
+    rare = _fake("Rare", 20, tier=Tier.LEAST_POSSIBLE, contexts=[Context.WINDOWS])
+
+    result = identify("xxx", context="windows", signatures=[common, rare])
+
+    assert names(result) == ["Common", "Rare"]
+    top, runner_up = result.candidates
+    assert runner_up.score > top.score  # boosted, but still in the lower tier
+    assert "most common format with this shape" in top.reasons
+    assert "common in Windows environments (--from windows)" in runner_up.reasons
+    assert "less common than Common with this shape" in runner_up.reasons
+
+
+# --- Prefix > structure > bare shape --------------------------------------------------
+
+LOOSE = dict(pattern=r".+", example="anything")
+
+
+def test_prefix_match_wins_outright_over_shape_lookalikes():
+    prefixed = _fake("Prefixed", 10, pattern=r"\$p\$x+", prefixes=("$p$",), example="$p$xxx")
+    lookalike = _fake("Lookalike", 90, **LOOSE)
+
+    result = identify("$p$xxx", signatures=[lookalike, prefixed])
+
+    assert names(result) == ["Prefixed"]
+    assert result.best.confidence is Confidence.HIGH
+
+
+def test_structure_match_beats_bare_shape():
+    structured = _fake("Salted", 10, pattern=r"x+:y+", structure="hash:salt", example="xx:yy")
+    lookalike = _fake("Lookalike", 90, **LOOSE)
+
+    assert names(identify("xx:yy", signatures=[lookalike, structured])) == ["Salted"]
+
+
+def test_prefix_match_beats_structure_match():
+    prefixed = _fake("Prefixed", 10, pattern=r"\$p\$.+", prefixes=("$p$",), example="$p$x")
+    structured = _fake("Salted", 90, pattern=r".+:.+", structure="hash:salt", example="x:y")
+
+    assert names(identify("$p$xx:yy", signatures=[structured, prefixed])) == ["Prefixed"]
+
+
+def test_formats_sharing_a_prefix_are_all_kept():
+    one = _fake("One", 60, pattern=r"\$p\$x+", prefixes=("$p$",), example="$p$x")
+    two = _fake("Two", 40, pattern=r"\$p\$x+", prefixes=("$p$", "$q$"), example="$p$x")
+
+    result = identify("$p$xxx", signatures=[two, one])
+
+    assert names(result) == ["One", "Two"]
+    assert [c.confidence for c in result.candidates] == [Confidence.MEDIUM] * 2
+
+
+OPTIONAL_STAR = dict(pattern=r"\*?x+", prefixes=("*",), example="*xxx")
+
+
+def test_optional_prefix_counts_only_when_the_input_has_it():
+    starred = _fake("Starred", 10, **OPTIONAL_STAR)
+    lookalike = _fake("Lookalike", 90, **LOOSE)
+
+    assert names(identify("*xxx", signatures=[lookalike, starred])) == ["Starred"]
+    assert names(identify("xxx", signatures=[lookalike, starred])) == ["Lookalike", "Starred"]
+
+
+def test_prefix_match_is_possible_even_for_a_least_possible_format():
+    starred = _fake("Starred", 10, tier=Tier.LEAST_POSSIBLE, **OPTIONAL_STAR)
+
+    assert tiers(identify("*xxx", signatures=[starred])) == [Tier.POSSIBLE]
+    assert tiers(identify("xxx", signatures=[starred])) == [Tier.LEAST_POSSIBLE]
+
+
+# --- Whitespace inside the input ---------------------------------------------------
+
+WHITESPACE_REASON = "ignoring whitespace inside the input"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "8743b520 63cd8409 7a65d163 3f5c74f5",
+        "8743b52063cd8409\n7a65d1633f5c74f5",
+        " 8743b52063cd8409\t7a65d1633f5c74f5\r\n",
+    ],
+    ids=["spaces", "newline", "tab-and-padding"],
+)
+def test_whitespace_inside_the_input_is_ignored_when_nothing_matches_as_is(raw):
+    result = identify(raw)
+
+    assert names(result) == ["MD5", "NTLM"]
+    assert result.normalized == MD5.example
+    for candidate in result.candidates:
+        assert WHITESPACE_REASON in candidate.reasons
+
+
+def test_whitespace_retry_is_not_used_when_the_input_matches_as_is():
+    spaced = _fake("Spaced", pattern=r"x+ x+", example="x x")
+    joined = _fake("Joined")
+
+    result = identify("xx xx", signatures=[joined, spaced])
+
+    assert names(result) == ["Spaced"]
+    assert result.normalized == "xx xx"
+    assert WHITESPACE_REASON not in result.best.reasons
+
+
+def test_input_without_inner_whitespace_has_no_whitespace_reason():
+    assert WHITESPACE_REASON not in identify(f"  {MD5.example}\n").best.reasons
+
+
+def test_unmatched_input_keeps_its_inner_whitespace():
+    result = identify("hello  world")
+
+    assert result.candidates == ()
+    assert result.normalized == "hello  world"
 
 
 # --- Step 7: SHA family, crypt formats, MySQL --------------------------------
@@ -152,11 +331,12 @@ def test_mysql_with_asterisk_is_high_confidence():
     assert "'*' followed by 40 hexadecimal characters" in result.best.reasons
 
 
-def test_bare_40_hex_is_sha1_first_with_mysql_as_low_runner_up():
+def test_bare_40_hex_is_sha1_first_with_mysql_as_runner_up():
     result = identify(MYSQL41.example[1:].lower())  # Hashcat's mode 300 example
 
     assert names(result) == ["SHA-1", "MySQL 4.1+"]
-    assert [c.confidence for c in result.candidates] == [Confidence.MEDIUM, Confidence.LOW]
+    assert tiers(result) == [Tier.POSSIBLE, Tier.POSSIBLE]
+    assert [c.confidence for c in result.candidates] == [Confidence.MEDIUM, Confidence.MEDIUM]
 
 
 @pytest.mark.parametrize("sig", [MD5CRYPT, SHA512CRYPT], ids=lambda s: s.name)
@@ -182,3 +362,19 @@ def test_db_context_boosts_both_for_bare_40_hex_so_sha1_stays_first():
     assert all(
         c.score == c.signature.popularity + CONTEXT_BOOST for c in result.candidates
     )
+
+
+# --- Registry invariants the engine relies on -----------------------------------------
+
+
+@pytest.mark.parametrize("sig", SIGNATURES, ids=lambda s: s.name)
+def test_every_example_has_a_possible_candidate(sig):
+    # Each shape needs a "usual" format, or its report would have no best guess.
+    assert Tier.POSSIBLE in tiers(identify(sig.example))
+
+
+@pytest.mark.parametrize("sig", SIGNATURES, ids=lambda s: s.name)
+def test_possible_candidates_always_come_first(sig):
+    found = tiers(identify(sig.example))
+
+    assert found == sorted(found, key=[Tier.POSSIBLE, Tier.LEAST_POSSIBLE].index)

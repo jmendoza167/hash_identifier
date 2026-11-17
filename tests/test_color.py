@@ -126,8 +126,10 @@ def test_input_cannot_inject_ansi_codes():
     assert "\x1b[31mred" not in text
 
 
-def test_color_scheme():
-    text = format_result(identify(MD5.example), context_tips(identify(MD5.example)), style=ANSI)
+def test_color_scheme(tiered_signatures):
+    result = identify(MD5.example, signatures=tiered_signatures)
+    tips = context_tips(result, signatures=tiered_signatures)
+    text = format_result(result, tips, style=ANSI)
 
     assert "\x1b[1mMD5\x1b[0m" in text  # format name bold
     assert "\x1b[33mMEDIUM\x1b[0m" in text  # MEDIUM yellow

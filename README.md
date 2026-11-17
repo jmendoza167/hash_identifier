@@ -47,7 +47,7 @@ Length:  32 characters
 #  Format  Confidence  Hashcat  John
 -  ------  ----------  -------  -------
 1  MD5     MEDIUM      0        raw-md5
-2  NTLM    LOW         1000     nt
+2  NTLM    MEDIUM      1000     nt
 
 1. MD5 - medium confidence
    Reasons:
@@ -59,7 +59,15 @@ Length:  32 characters
      hashcat -m 0 -a 0 hash.txt wordlist.txt
      john --format=raw-md5 --wordlist=wordlist.txt hash.txt
 
-Low-confidence candidates are shown in the table only.
+2. NTLM - medium confidence
+   Reasons:
+     - 32 hexadecimal characters
+     - less common than MD5 with this shape
+     - also matches MD5: same length and charset
+   Strength: WEAK - Unsalted MD4 of the password: even faster to crack than MD5.
+   Crack it (save the hash to hash.txt first):
+     hashcat -m 1000 -a 0 hash.txt wordlist.txt
+     john --format=nt --wordlist=wordlist.txt hash.txt
 
 Tip: hash from a Windows system? Re-run with --from windows (NTLM ranks first)
 ```

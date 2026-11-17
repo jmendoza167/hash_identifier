@@ -153,9 +153,14 @@ class Adjustment:
 
 @dataclass(frozen=True, kw_only=True)
 class Candidate:
-    """One possible identification of a hash, with the evidence for it."""
+    """One possible identification of a hash, with the evidence for it.
+
+    ``tier`` is the tier for this input: usually the signature's own, but a
+    format matched by its prefix is always POSSIBLE.
+    """
 
     signature: Signature
+    tier: Tier
     score: float
     confidence: Confidence
     reasons: tuple[str, ...] = ()
@@ -165,7 +170,9 @@ class Candidate:
 class Result:
     """The outcome of identifying one input string.
 
-    ``normalized`` is derived from ``raw`` (surrounding whitespace stripped).
+    ``normalized`` is derived from ``raw``: surrounding whitespace is always
+    stripped, and with ``whitespace_removed`` so is whitespace inside it (the
+    engine sets that when the input only matches a format without it).
     ``candidates`` is ordered best-first and is empty if nothing matched.
     ``context`` is the hint the result was computed with, if any.
     """
@@ -173,10 +180,12 @@ class Result:
     raw: str
     candidates: tuple[Candidate, ...] = ()
     context: Context | None = None
+    whitespace_removed: bool = False
     normalized: str = field(init=False)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "normalized", self.raw.strip())
+        value = "".join(self.raw.split()) if self.whitespace_removed else self.raw.strip()
+        object.__setattr__(self, "normalized", value)
 
     @property
     def best(self) -> Candidate | None:

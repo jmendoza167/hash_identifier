@@ -121,7 +121,7 @@ def test_md5_record_keys_and_types(capsys):
             assert all(isinstance(s, str) for s in cand[key])
 
     md5, ntlm = record["candidates"]
-    assert (md5["confidence"], ntlm["confidence"]) == ("medium", "low")
+    assert (md5["confidence"], ntlm["confidence"]) == ("medium", "medium")
     assert md5["score"] > ntlm["score"]
     assert (md5["hashcat_mode"], md5["john_format"]) == (0, "raw-md5")
 

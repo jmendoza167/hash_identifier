@@ -29,15 +29,31 @@ def no_color_env(monkeypatch):
 # --- One value -----------------------------------------------------------------------
 
 
+def test_show_low_adds_the_low_confidence_detail_block(tiered_signatures):
+    result = identify(MD5.example, signatures=tiered_signatures)
+
+    out = format_result(result, show_low=True)
+
+    assert "3. Rare-128 - low confidence" in out
+    assert "hashcat -m 99999 -a 0 hash.txt wordlist.txt" in out
+    assert "john --format=rare-128 --wordlist=wordlist.txt hash.txt" in out
+    assert "Low-confidence candidates are shown in the table only." not in out
+
+
+def test_low_detail_blocks_are_hidden_without_show_low(tiered_signatures):
+    result = identify(MD5.example, signatures=tiered_signatures)
+
+    out = format_result(result, show_low=False)
+
+    assert "3. Rare-128" not in out
+    assert "Low-confidence candidates are shown in the table only." in out
+
+
 @pytest.mark.parametrize("flag", ["-v", "--verbose"])
-def test_one_value_shows_low_confidence_detail_block(capsys, flag):
+def test_verbose_flag_asks_for_low_confidence_details(capsys, flag):
     _, out = run(capsys, flag, MD5.example)
 
-    assert "2. NTLM - low confidence" in out
-    assert "hashcat -m 1000 -a 0 hash.txt wordlist.txt" in out
-    assert "john --format=nt --wordlist=wordlist.txt hash.txt" in out
-    assert "Low-confidence candidates are shown in the table only." not in out
-    assert out == full(MD5.example) + "\n"
+    assert out == full(MD5.example, show_low=True) + "\n"
 
 
 def test_one_value_without_low_candidates_is_the_same_as_default(capsys):
@@ -47,11 +63,9 @@ def test_one_value_without_low_candidates_is_the_same_as_default(capsys):
     assert verbose == default
 
 
-def test_default_one_value_still_hides_low_detail_blocks(capsys):
+def test_default_one_value_does_not_ask_for_low_confidence_details(capsys):
     _, out = run(capsys, MD5.example)
 
-    assert "2. NTLM" not in out
-    assert "Low-confidence candidates are shown in the table only." in out
     assert out == full(MD5.example, show_low=False) + "\n"
 
 
@@ -66,7 +80,7 @@ def test_several_values_show_a_full_report_each(capsys):
     assert "Conf" not in out.splitlines()[0]  # no compact table
     for value in values:
         assert full(value) in out
-    assert out.count("Reasons:") == 3  # MD5, NTLM (low), bcrypt
+    assert out.count("Reasons:") == 3  # MD5, NTLM, bcrypt
 
 
 def test_reports_are_separated_by_labelled_rules(capsys):

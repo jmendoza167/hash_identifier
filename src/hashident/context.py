@@ -12,9 +12,11 @@ are 20 points apart (see ``hashident.signatures``):
   three (60). NTLM (60) beats MD5 (100) with --from windows (110 vs 100),
   but a rare format (20) cannot overtake a ubiquitous one (100) on a hint
   alone (70 vs 100).
-* After such a flip the two are 10 points apart, well within the engine's
-  ``MEDIUM_MAX_GAP`` of 20, so both stay MEDIUM. A hint changes the best
-  guess; it does not turn an ambiguous match into a certain one.
+* A hint changes the best guess; it does not turn an ambiguous match into a
+  certain one. Confidence comes from a candidate's tier, which a hint never
+  changes (see ``hashident.engine``), so after such a flip both stay MEDIUM.
+* The boost reorders candidates within a tier only. A LEAST_POSSIBLE format
+  stays below every POSSIBLE one, whatever its boosted score.
 """
 
 from __future__ import annotations

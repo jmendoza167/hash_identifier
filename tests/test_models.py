@@ -82,9 +82,24 @@ def test_result_with_no_candidates():
     assert result.best is None
 
 
+def test_result_can_drop_whitespace_inside_the_input():
+    result = Result(raw=" ab cd\nef \n", whitespace_removed=True)
+
+    assert result.raw == " ab cd\nef \n"
+    assert result.normalized == "abcdef"
+
+
 def test_result_best_is_first_candidate(md5):
-    top = Candidate(signature=md5, score=0.9, confidence=Confidence.HIGH, reasons=("32 hex chars",))
-    other = Candidate(signature=md5, score=0.2, confidence=Confidence.LOW)
+    top = Candidate(
+        signature=md5,
+        tier=Tier.POSSIBLE,
+        score=0.9,
+        confidence=Confidence.HIGH,
+        reasons=("32 hex chars",),
+    )
+    other = Candidate(
+        signature=md5, tier=Tier.LEAST_POSSIBLE, score=0.2, confidence=Confidence.LOW
+    )
 
     assert Result(raw=MD5_OF_PASSWORD, candidates=(top, other)).best is top
 

@@ -30,18 +30,28 @@ def test_md5_table_lists_md5_then_ntlm():
 
     assert rows == [
         ["1", "MD5", "MEDIUM", "0", "raw-md5"],
-        ["2", "NTLM", "LOW", "1000", "nt"],
+        ["2", "NTLM", "MEDIUM", "1000", "nt"],
     ]
 
 
-def test_md5_has_detail_block_only_for_medium_and_above():
+def test_md5_has_a_detail_block_for_each_possible_format():
     text = render(MD5.example)
 
     assert "1. MD5 - medium confidence" in text
-    assert "2. NTLM" not in text
+    assert "2. NTLM - medium confidence" in text
     assert "hashcat -m 0 -a 0 hash.txt wordlist.txt" in text
     assert "john --format=raw-md5 --wordlist=wordlist.txt hash.txt" in text
-    assert "hashcat -m 1000" not in text
+    assert "hashcat -m 1000 -a 0 hash.txt wordlist.txt" in text
+    assert "Low-confidence" not in text
+
+
+def test_least_possible_format_is_in_the_table_but_has_no_detail_block(tiered_signatures):
+    text = format_result(identify(MD5.example, signatures=tiered_signatures))
+
+    assert table_rows(text)[2] == ["3", "Rare-128", "LOW", "99999", "rare-128"]
+    assert "2. NTLM - medium confidence" in text
+    assert "3. Rare-128" not in text
+    assert "hashcat -m 99999" not in text
     assert "Low-confidence candidates are shown in the table only." in text
 
 
