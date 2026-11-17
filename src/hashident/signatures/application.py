@@ -1,9 +1,13 @@
-"""Formats tied to a product: databases, operating systems, applications."""
+"""Formats tied to a product: web applications, Windows and games.
+
+Databases are in ``databases`` and network devices and protocols in
+``network``; all three modules hold the application category.
+"""
 
 from __future__ import annotations
 
 from hashident.models import Category, Charset, Context, Signature, Strength, Tier
-from hashident.signatures._shared import B64, BASE64, COLON_FIELD, DB, WEB, WINDOWS, hex_chars
+from hashident.signatures._shared import B64, BASE64, COLON_FIELD, WEB, WINDOWS, hex_chars
 
 _P, _L = Tier.POSSIBLE, Tier.LEAST_POSSIBLE
 _WEAK, _MODERATE, _STRONG = Strength.WEAK, Strength.MODERATE, Strength.STRONG
@@ -51,45 +55,6 @@ def _app(
         contexts=contexts,
     )
 
-
-# --- MySQL --------------------------------------------------------------------
-
-MYSQL323 = _app(
-    "MySQL323",
-    _P,
-    60,
-    "7196759210defdc0",
-    length=16,
-    summary="MySQL before 4.1, OLD_PASSWORD()",
-    strength=_WEAK,
-    note="A weak home-grown hash: a matching password is found in seconds.",
-    hashcat=200,
-    john="mysql",
-    contexts=DB,
-)
-
-# MySQL 4.1+ PASSWORD(): "*" + uppercase hex of SHA1(SHA1(password)).
-# The pattern accepts the bare 40-hex form too, because Hashcat's own
-# mode 300 example (and many cracking lists) drop the asterisk. A bare
-# value also matches SHA-1, which outranks MySQL; only the "*" form is
-# unambiguous. For Hashcat, strip the leading "*": mode 300 expects exactly
-# 40 hex characters. John's mysql-sha1 format requires the asterisk: its
-# valid() rejects anything but "*" + 40 hex (src/mysqlSHA1_fmt_plug.c).
-# See hashident.commands.tool_notes.
-MYSQL41 = _app(
-    "MySQL 4.1+",
-    _P,
-    40,
-    "*FCF7C1B8749CF99D88E5F34271D636178FB5D130",
-    pattern=r"\*?" + hex_chars(40),
-    prefixes=("*",),
-    summary="MySQL5, SHA-1(SHA-1($pass))",
-    strength=_WEAK,
-    note="Unsalted double SHA-1: identical passwords give identical hashes.",
-    hashcat=300,
-    john="mysql-sha1",
-    contexts=DB,
-)
 
 # --- phpass: $P$ (WordPress and others) and $H$ (phpBB3) ------------------------
 # A cost character, an 8-character salt and a 22-character hash.
@@ -245,6 +210,31 @@ SAM = _app(
     contexts=WINDOWS,
 )
 
+# One line of pwdump or secretsdump output: user:rid:LM:NT:::. An account
+# without an LM hash may show a placeholder in that field.
+_NO_PASSWORD = r"NO PASSWORD\*{21}"
+PWDUMP = _app(
+    "pwdump",
+    _P,
+    70,
+    "Administrator:500:299bd128c1101fd6aad3b435b51404ee:b4b9b02e6f09a9bd760f388b67351e2b:::",
+    pattern=(
+        rf"[^:\s][^:]*:[0-9]+:(?:{hex_chars(32)}|{_NO_PASSWORD})"
+        rf":(?:{hex_chars(32)}|{_NO_PASSWORD}):[^:]*:[^:]*:[^:]*"
+    ),
+    structure="user:rid:LM:NT:::",
+    summary="a line of pwdump or secretsdump output",
+    strength=_WEAK,
+    note="Both hashes are unsalted and fast; the LM hash falls in seconds.",
+    hashcat=1000,
+    john="nt",
+    notes=(
+        "Hashcat mode 1000 and john's nt format read the whole line and take the "
+        "NTLM hash from it. Use hashcat mode 3000 or john's lm format for the LM hash.",
+    ),
+    contexts=WINDOWS,
+)
+
 # MD4(NT hash + lowercased username). Hashcat writes it hash:username; the
 # username is the salt, so without it this is one more guess for 32 hex.
 DCC = _app(
@@ -321,8 +311,6 @@ MANGOS = _app(
 )
 
 SIGNATURES: tuple[Signature, ...] = (
-    MYSQL323,
-    MYSQL41,
     WORDPRESS,
     PHPBB3,
     WORDPRESS_HMAC,
@@ -332,6 +320,7 @@ SIGNATURES: tuple[Signature, ...] = (
     DJANGO_SHA384,
     DJANGO_PBKDF2,
     SAM,
+    PWDUMP,
     DCC,
     DCC2,
     RADMIN2,

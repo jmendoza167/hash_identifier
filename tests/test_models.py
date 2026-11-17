@@ -215,3 +215,45 @@ def test_example_with_its_optional_structure_is_accepted():
 
     assert sig.matches(MD5_OF_PASSWORD)
     assert sig.matches(MD5_OF_PASSWORD + ":salt")
+
+
+# --- Validators and ignored prefixes ----------------------------------------------------
+
+
+def test_validator_can_reject_what_the_pattern_accepts():
+    sig = _shaped(validator=lambda value: value.startswith("5"))
+
+    assert sig.matches(MD5_OF_PASSWORD)  # starts with 5
+    assert not sig.matches("0" + MD5_OF_PASSWORD[1:])
+    assert sig.match("0" + MD5_OF_PASSWORD[1:]) is None
+
+
+def test_validator_is_not_asked_about_values_the_pattern_rejects():
+    def explode(value):
+        raise AssertionError("should not be called")
+
+    sig = _shaped(validator=lambda value: True)
+    strict = Signature(
+        name="Strict",
+        category=Category.RAW,
+        tier=Tier.POSSIBLE,
+        pattern=r"x",
+        strength=Strength.WEAK,
+        strength_note="n/a",
+        example="x",
+        validator=lambda value: value == "x" or explode(value),
+    )
+
+    assert sig.matches(MD5_OF_PASSWORD)
+    assert not strict.matches("not-x")
+
+
+def test_example_must_pass_the_validator():
+    with pytest.raises(ValueError, match="example"):
+        _shaped(validator=lambda value: False)
+
+
+def test_candidate_matched_as_typed_has_no_ignored_prefix(md5):
+    cand = Candidate(signature=md5, tier=Tier.POSSIBLE, score=1.0, confidence=Confidence.HIGH)
+
+    assert cand.ignored_prefix == ""

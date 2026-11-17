@@ -227,3 +227,42 @@ def test_commands_cover_exactly_the_tools_that_support_the_format():
     for sig in SIGNATURES:
         tools = (sig.hashcat_mode is not None) + (sig.john_format is not None)
         assert len(crack_commands(sig)) == tools, sig.name
+
+
+# --- Notes for a hash typed with 0x in front ---------------------------------------------
+
+from hashident.commands import candidate_notes  # noqa: E402
+
+STRIP_NOTE = "Remove the leading '0x' before giving the hash to hashcat or john."
+
+
+def test_candidate_matched_after_0x_gets_a_note_to_remove_it():
+    result = identify("0x" + MD5.example)
+    md5 = result.best
+    lineage = next(c for c in result.candidates if c.signature.name == "Lineage II C4")
+
+    assert candidate_notes(md5, result.normalized) == (STRIP_NOTE,)
+    assert candidate_notes(lineage, result.normalized) == ()
+
+
+def test_notes_for_the_format_come_after_the_0x_note():
+    result = identify("0x" + MYSQL41.example[1:])  # bare MySQL: john wants a "*" added
+    mysql = next(c for c in result.candidates if c.signature is MYSQL41)
+
+    notes = candidate_notes(mysql, result.normalized)
+
+    assert notes[0] == STRIP_NOTE
+    assert notes[1].startswith("For john, add a leading '*'")
+
+
+def test_candidate_notes_equal_tool_notes_without_a_prefix():
+    result = identify(MYSQL41.example)
+
+    assert candidate_notes(result.best, result.normalized) == tool_notes(MYSQL41, MYSQL41.example)
+
+
+def test_report_prints_the_0x_note():
+    text = " ".join(render("0x" + MD5.example).split())
+
+    assert f"Note: {STRIP_NOTE}" in text
+    assert "- ignoring the 0x in front" in text

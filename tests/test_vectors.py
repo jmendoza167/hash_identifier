@@ -115,6 +115,21 @@ def dcc2(password: bytes, username: str, rounds: int) -> str:
     return hashlib.pbkdf2_hmac("sha1", dcc(password, username), salt, rounds, 16).hex()
 
 
+CISCO7_KEY = b"dsfd;kfoA,.iyewrkldJKDHSUBsgvca69834ncxv9873254k;fg87"
+
+
+def cisco7(password: bytes, seed: int) -> str:
+    """Cisco type 7: a two-digit offset into a fixed key, then the XORed bytes."""
+    body = "".join(
+        f"{byte ^ CISCO7_KEY[(seed + i) % len(CISCO7_KEY)]:02X}" for i, byte in enumerate(password)
+    )
+    return f"{seed:02d}{body}"
+
+
+def test_cisco7_reference_gives_the_well_known_encoding_of_cisco():
+    assert cisco7(b"cisco", 8) == "0822455D0A16"
+
+
 CRC16_ARC = dict(width=16, poly=0x8005, init=0x0000, reflect=True, xorout=0x0000)
 CRC16_CCITT_FALSE = dict(width=16, poly=0x1021, init=0xFFFF, reflect=False, xorout=0x0000)
 CRC16_X25 = dict(width=16, poly=0x1021, init=0xFFFF, reflect=True, xorout=0xFFFF)
@@ -317,6 +332,51 @@ VECTORS: dict[str, tuple[Tier, Computed | Published | ShapeOnly]] = {
     "RAdmin v2.x": (L, Computed(lambda: hashlib.md5(PASSWORD.ljust(100, b"\0")).hexdigest())),
     "Lineage II C4": (L, ShapeOnly(UNDOCUMENTED)),
     "SHA-1(MaNGOS)": (L, Computed(lambda: hashlib.sha1(b"HASHCAT:HASHCAT").hexdigest())),
+    "pwdump": (
+        P,
+        Computed(
+            lambda: "Administrator:500:"
+            + get_signature("LM").example
+            + ":"
+            + md4(PASSWORD.decode().encode("utf-16-le"))
+            + ":::"
+        ),
+    ),
+    # Databases
+    "MSSQL 2000": (P, Published(f"{HASHCAT}, mode 131")),
+    "MSSQL 2005": (P, Published(f"{HASHCAT}, mode 132")),
+    "MSSQL 2012": (P, Published(f"{HASHCAT}, mode 1731")),
+    "Oracle 11g": (
+        P,
+        Computed(
+            lambda: "S:"
+            + hashlib.sha1(PASSWORD + bytes.fromhex("38445748184477378130")).hexdigest().upper()
+            + "38445748184477378130"
+        ),
+    ),
+    "Oracle 12c": (P, Published(f"{HASHCAT}, mode 12300, with Oracle's T: marker")),
+    "PostgreSQL MD5": (
+        P,
+        Computed(lambda: "md5" + hashlib.md5(PASSWORD + b"postgres").hexdigest()),
+    ),
+    "PostgreSQL SCRAM-SHA-256": (P, Published(f"{HASHCAT}, mode 28600")),
+    # Network devices and protocols
+    "Cisco type 4": (P, Published(f"{HASHCAT}, mode 5700")),
+    "Cisco type 7": (P, Computed(lambda: cisco7(PASSWORD, 8))),
+    "Cisco type 8": (P, Published(f"{HASHCAT}, mode 9200")),
+    "Cisco type 9": (P, Published(f"{HASHCAT}, mode 9300")),
+    "Cisco-PIX MD5": (P, Published(f"{HASHCAT}, mode 2400")),
+    "Cisco-ASA MD5": (P, Published(f"{HASHCAT}, mode 2410")),
+    "NetNTLMv1": (P, Published(f"{HASHCAT}, mode 5500")),
+    "NetNTLMv2": (P, Published(f"{HASHCAT}, mode 5600")),
+    "Kerberos 5 TGS-REP etype 23": (P, Published(f"{HASHCAT}, mode 13100")),
+    "Kerberos 5 TGS-REP AES": (P, Published(f"{HASHCAT}, mode 19700")),
+    "Kerberos 5 AS-REP etype 23": (P, Published(f"{HASHCAT}, mode 18200")),
+    "Kerberos 5 AS-REP AES": (P, Published(f"{HASHCAT}, mode 32200")),
+    "Kerberos 5 Pre-Auth etype 23": (P, Published(f"{HASHCAT}, mode 7500")),
+    "Kerberos 5 Pre-Auth AES": (P, Published(f"{HASHCAT}, mode 19900")),
+    "WPA PMKID/EAPOL": (P, Published(f"{HASHCAT}, mode 22000")),
+    "WPA PMKID (legacy)": (P, Published(f"{HASHCAT}, mode 16800")),
     "MySQL 4.1+": (
         P,
         Computed(

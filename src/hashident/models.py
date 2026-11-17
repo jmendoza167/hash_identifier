@@ -7,6 +7,7 @@ identification logic beyond a signature's own pattern match.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -100,6 +101,10 @@ class Signature:
     ``structure``, e.g. ``[0-9a-f]{32}(?P<structure>:\\w+)?``. The engine
     treats a match without that group as a bare shape (see
     ``hashident.engine``). The example must show the full form.
+
+    ``validator`` is for the rare format a pattern cannot pin down: it is
+    called with a value the pattern accepted and returns whether the value
+    really is in the format.
     """
 
     name: str
@@ -119,6 +124,7 @@ class Signature:
     notes: tuple[str, ...] = ()
     popularity: float = 1.0
     contexts: frozenset[Context] = frozenset()
+    validator: Callable[[str], bool] | None = field(default=None, repr=False, compare=False)
 
     _regex: re.Pattern[str] = field(init=False, repr=False, compare=False)
 
@@ -137,7 +143,9 @@ class Signature:
             object.__setattr__(self, "pattern", f"{char_class}{{{self.length}}}")
         object.__setattr__(self, "_regex", re.compile(self.pattern))
         if not self.matches(self.example):
-            raise ValueError(f"{self.name}: example does not match its own pattern")
+            raise ValueError(
+                f"{self.name}: example does not match its own pattern or validator"
+            )
         if self.length is not None and len(self.example) != self.length:
             raise ValueError(
                 f"{self.name}: example is {len(self.example)} characters, "
@@ -150,7 +158,10 @@ class Signature:
 
     def match(self, value: str) -> re.Match[str] | None:
         """The match if ``value`` is entirely in this signature's format, else None."""
-        return self._regex.fullmatch(value)
+        match = self._regex.fullmatch(value)
+        if match is not None and self.validator is not None and not self.validator(value):
+            return None
+        return match
 
     def matches(self, value: str) -> bool:
         """Return True if ``value`` is entirely in this signature's format."""
@@ -180,7 +191,9 @@ class Candidate:
     """One possible identification of a hash, with the evidence for it.
 
     ``tier`` is the tier for this input: usually the signature's own, but a
-    format matched by its prefix is always POSSIBLE.
+    format matched by its prefix is always POSSIBLE. ``ignored_prefix`` is
+    ``0x`` when the format matched the hex after a leading ``0x`` and not the
+    input as typed; otherwise it is empty.
     """
 
     signature: Signature
@@ -188,6 +201,7 @@ class Candidate:
     score: float
     confidence: Confidence
     reasons: tuple[str, ...] = ()
+    ignored_prefix: str = ""
 
 
 @dataclass(frozen=True)

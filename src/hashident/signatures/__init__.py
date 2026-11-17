@@ -1,8 +1,10 @@
 """The signature database: every hash format hashident knows how to recognise.
 
 ``SIGNATURES`` is the one registry the rest of the program reads. It is put
-together from one module per category (``raw``, ``salted``, ``application``,
-``crypt``, ``checksums``), each holding plain ``Signature`` entries.
+together from modules that each hold plain ``Signature`` entries of one
+category: ``raw``, ``salted``, ``crypt`` and ``checksums``, and for the
+application category ``application`` (web applications, Windows, games),
+``databases`` and ``network`` (network devices and protocols).
 
 Adding a format
 ---------------
@@ -12,9 +14,9 @@ module's ``SIGNATURES`` tuple. A bare digest needs only ``length`` and
 to change: matching, ranking and every output format read the registry.
 
 Example hashes are taken from the Hashcat example hashes list
-(https://hashcat.net/wiki/doku.php?id=example_hashes); the plaintext for all
-of them is "hashcat". The one exception is MySQL 4.1+, whose example is
-Hashcat's mode 300 hash written in MySQL's own format (see ``application``).
+(https://hashcat.net/wiki/doku.php?id=example_hashes) wherever it has one,
+or computed from the same plaintext, "hashcat". tests/test_vectors.py says
+where each example comes from and recomputes the ones it can.
 
 Tiers
 -----
@@ -45,8 +47,16 @@ can still lift a lower-ranked format to the top, e.g. NTLM over MD5 with
 from __future__ import annotations
 
 from hashident.models import Signature
-from hashident.signatures import application, checksums, crypt, raw, salted
-from hashident.signatures.application import MYSQL41
+from hashident.signatures import (
+    application,
+    checksums,
+    crypt,
+    databases,
+    network,
+    raw,
+    salted,
+)
+from hashident.signatures.databases import MYSQL41
 from hashident.signatures.crypt import BCRYPT, MD5CRYPT, SHA512CRYPT
 from hashident.signatures.raw import MD5, NTLM, SHA1, SHA224, SHA256, SHA512
 
@@ -70,6 +80,8 @@ SIGNATURES: tuple[Signature, ...] = (
     raw.SIGNATURES
     + salted.SIGNATURES
     + application.SIGNATURES
+    + databases.SIGNATURES
+    + network.SIGNATURES
     + crypt.SIGNATURES
     + checksums.SIGNATURES
 )

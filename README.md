@@ -482,8 +482,6 @@ format; `--show-modes` prints them next to each match.
 
 | Format | Hashcat mode | John format | Strength |
 | --- | --- | --- | --- |
-| MySQL323 | 200 | `mysql` | Weak |
-| MySQL 4.1+ | 300 | `mysql-sha1` | Weak |
 | WordPress (phpass) | 400 | `phpass` | Weak |
 | phpBB3 (phpass) | 400 | `phpass` | Weak |
 | MD5(HMAC(Wordpress)) | - | - | Weak |
@@ -493,11 +491,37 @@ format; `--show-modes` prints them next to each match.
 | Django SHA-384 | - | - | Moderate |
 | Django PBKDF2-SHA256 | 10000 | `django` | Strong |
 | SAM (LM:NT) | 1000 | `nt` | Weak |
+| pwdump | 1000 | `nt` | Weak |
 | Domain Cached Credentials | 1100 | `mscash` | Weak |
 | Domain Cached Credentials 2 | 2100 | `mscash2` | Moderate |
 | RAdmin v2.x | 9900 | `radmin` | Weak |
 | Lineage II C4 | - | - | Weak |
 | SHA-1(MaNGOS) | - | `dynamic_35` | Weak |
+| MySQL323 | 200 | `mysql` | Weak |
+| MySQL 4.1+ | 300 | `mysql-sha1` | Weak |
+| MSSQL 2000 | 131 | `mssql` | Weak |
+| MSSQL 2005 | 132 | `mssql05` | Weak |
+| MSSQL 2012 | 1731 | `mssql12` | Moderate |
+| Oracle 11g | 112 | `oracle11` | Weak |
+| Oracle 12c | 12300 | `oracle12c` | Strong |
+| PostgreSQL MD5 | 12 | - | Weak |
+| PostgreSQL SCRAM-SHA-256 | 28600 | - | Strong |
+| Cisco type 4 | 5700 | - | Weak |
+| Cisco type 7 | - | - | Weak |
+| Cisco type 8 | 9200 | - | Strong |
+| Cisco type 9 | 9300 | - | Strong |
+| Cisco-PIX MD5 | 2400 | `pix-md5` | Weak |
+| Cisco-ASA MD5 | 2410 | `asa-md5` | Weak |
+| NetNTLMv1 | 5500 | `netntlm` | Weak |
+| NetNTLMv2 | 5600 | `netntlmv2` | Weak |
+| Kerberos 5 TGS-REP etype 23 | 13100 | `krb5tgs` | Weak |
+| Kerberos 5 TGS-REP AES | 19700 | - | Moderate |
+| Kerberos 5 AS-REP etype 23 | 18200 | `krb5asrep` | Weak |
+| Kerberos 5 AS-REP AES | 32200 | - | Moderate |
+| Kerberos 5 Pre-Auth etype 23 | 7500 | `krb5pa-md5` | Weak |
+| Kerberos 5 Pre-Auth AES | 19900 | - | Moderate |
+| WPA PMKID/EAPOL | 22000 | - | Moderate |
+| WPA PMKID (legacy) | 16800 | - | Moderate |
 
 ### crypt and key-derivation formats
 

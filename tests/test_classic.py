@@ -296,3 +296,25 @@ def test_eight_hex_characters_are_reported_as_checksums():
         "[+] CRC-32 - checksum, CRC-32/BZIP2",
         "[+] Adler-32 - checksum, zlib",
     ]
+
+
+# --- 0x in front of hex -----------------------------------------------------------------
+
+
+def test_hex_typed_with_0x_says_the_hex_after_it_was_tried():
+    lines = lines_of(identify("0x" + MD5.example))
+
+    assert lines[:4] == [
+        f"HASH: 0x{MD5.example}",
+        "",
+        "[*] Formats for the hex after '0x' are included.",
+        "",
+    ]
+    assert lines[4:7] == ["Possible Hashes:", "[+] MD5", "[+] NTLM"]
+    assert "[+] Lineage II C4" in lines
+
+
+def test_note_is_left_out_when_nothing_matched_after_0x():
+    mssql = next(s for s in SIGNATURES if s.name == "MSSQL 2005")
+
+    assert not any("0x" in line and line.startswith("[*]") for line in lines_of(identify(mssql.example)))

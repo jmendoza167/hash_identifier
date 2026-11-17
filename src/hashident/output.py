@@ -25,7 +25,7 @@ from collections import Counter
 from collections.abc import Callable, Sequence
 from enum import Enum
 
-from hashident.commands import HASH_FILE, crack_commands, tool_notes
+from hashident.commands import HASH_FILE, candidate_notes, crack_commands
 from hashident.inputs import ARGUMENT_SOURCE, InputItem
 from hashident.models import Candidate, Confidence, Context, Result
 from hashident.signatures import SIGNATURES
@@ -197,7 +197,7 @@ def _details(rank: int, cand: Candidate, value: str, style: Styler) -> list[str]
     if commands:
         lines.append(f"{_INDENT}Crack it (save the hash to {HASH_FILE} first):")
         lines += [f"{_INDENT}  {style.command(cmd)}" for cmd in commands]
-    for note in tool_notes(sig, value):
+    for note in candidate_notes(cand, value):
         lines += wrap(_INDENT, "Note: ", note)
     return lines
 

@@ -397,17 +397,10 @@ def test_db_context_boosts_both_for_bare_40_hex_so_sha1_stays_first():
 # --- Registry invariants the engine relies on -----------------------------------------
 
 
-# Formats that are the only match for their shape and still a long shot.
-ONLY_GUESS_IS_A_LONG_SHOT = {"Lineage II C4"}
-
-
 @pytest.mark.parametrize("sig", SIGNATURES, ids=lambda s: s.name)
 def test_every_example_has_a_possible_candidate(sig):
     # Each shape needs a "usual" format, or its report would have no best guess.
-    if sig.name in ONLY_GUESS_IS_A_LONG_SHOT:
-        assert tiers(identify(sig.example)) == [Tier.LEAST_POSSIBLE]
-    else:
-        assert Tier.POSSIBLE in tiers(identify(sig.example))
+    assert Tier.POSSIBLE in tiers(identify(sig.example))
 
 
 @pytest.mark.parametrize("sig", SIGNATURES, ids=lambda s: s.name)
@@ -591,3 +584,147 @@ def test_prefix_pins_the_format_down_to_one(value, expected):
 
     assert names(result) == expected
     assert result.best.confidence is Confidence.HIGH
+
+
+# --- "0x" in front of hex ------------------------------------------------------------------
+
+HEX_PREFIX_REASON = "ignoring the 0x in front"
+
+
+def _hex4(name="Hex", **overrides):
+    fields = dict(pattern=r"[0-9a-fA-F]{4}", example="abcd")
+    fields.update(overrides)
+    return _fake(name, **fields)
+
+
+def by_name(result):
+    return {c.signature.name: c for c in result.candidates}
+
+
+def test_hex_after_0x_is_tried_as_well_as_the_input_itself():
+    tagged = _fake("Tagged", 10, tier=Tier.LEAST_POSSIBLE, pattern=r"0x[0-9a-f]{4}", example="0xabcd")
+
+    found = by_name(identify("0xabcd", signatures=[tagged, _hex4()]))
+
+    assert list(found) == ["Hex", "Tagged"]
+    assert found["Hex"].ignored_prefix == "0x"
+    assert HEX_PREFIX_REASON in found["Hex"].reasons
+    assert found["Tagged"].ignored_prefix == ""
+    assert HEX_PREFIX_REASON not in found["Tagged"].reasons
+
+
+def test_shape_reason_describes_the_hex_without_the_0x():
+    best = identify("0xabcd", signatures=[_hex4()]).best
+
+    assert best.reasons[:2] == ("4 hexadecimal characters", HEX_PREFIX_REASON)
+
+
+def test_result_keeps_the_input_as_typed():
+    assert identify("0xabcd", signatures=[_hex4()]).normalized == "0xabcd"
+
+
+def test_uppercase_0x_counts_too():
+    best = identify("0XABCD", signatures=[_hex4()]).best
+
+    assert best.ignored_prefix == "0X"
+
+
+def test_a_prefix_that_starts_with_0x_still_wins_outright():
+    pinned = _fake("Pinned", 10, pattern=r"0x01[0-9a-f]{2}", prefixes=("0x01",), example="0x01ab")
+
+    result = identify("0x01ab", signatures=[_hex4(), pinned])
+
+    assert names(result) == ["Pinned"]
+    assert result.best.ignored_prefix == ""
+
+
+@pytest.mark.parametrize("raw", ["0xzzzz", "0x", "x0abcd", "0xab:cd"])
+def test_0x_is_only_dropped_in_front_of_plain_hex(raw):
+    assert identify(raw, signatures=[_hex4()]).candidates == ()
+
+
+def test_hex_without_0x_is_not_reported_as_prefixed():
+    best = identify("abcd", signatures=[_hex4()]).best
+
+    assert best.ignored_prefix == ""
+    assert HEX_PREFIX_REASON not in best.reasons
+
+
+def test_whitespace_and_0x_can_both_be_ignored():
+    result = identify("0x ab cd", signatures=[_hex4()])
+
+    assert result.normalized == "0xabcd"
+    assert WHITESPACE_REASON in result.best.reasons
+    assert HEX_PREFIX_REASON in result.best.reasons
+
+
+def test_0x_and_32_hex_is_md5_or_ntlm_before_lineage():
+    result = identify("0x" + MD5.example)
+
+    assert possible(result) == ["MD5", "NTLM"]
+    assert "Lineage II C4" in least(result)
+    found = by_name(result)
+    assert found["MD5"].ignored_prefix == "0x"
+    assert found["Lineage II C4"].ignored_prefix == ""
+
+
+def test_0x_and_40_hex_is_sha1_first():
+    assert possible(identify("0x" + SHA1.example)) == ["SHA-1", "MySQL 4.1+"]
+
+
+@pytest.mark.parametrize(
+    "name", ["MSSQL 2000", "MSSQL 2005", "MSSQL 2012"], ids=["2000", "2005", "2012"]
+)
+def test_mssql_hash_is_pinned_by_its_0x_header(name):
+    sig = next(s for s in SIGNATURES if s.name == name)
+
+    result = identify(sig.example)
+
+    assert names(result) == [name]
+    assert result.best.confidence is Confidence.HIGH
+    assert result.best.ignored_prefix == ""
+
+
+def test_0x0100_with_another_length_is_not_mssql():
+    # 0x, then 32 hex characters that happen to begin with 0100.
+    result = identify("0x0100" + MD5.example[4:])
+
+    assert possible(result) == ["MD5", "NTLM"]
+    assert not any(name.startswith("MSSQL") for name in names(result))
+
+
+def test_netntlm_versions_are_told_apart_by_their_fields():
+    v1 = next(s for s in SIGNATURES if s.name == "NetNTLMv1")
+    v2 = next(s for s in SIGNATURES if s.name == "NetNTLMv2")
+
+    assert names(identify(v1.example)) == ["NetNTLMv1"]
+    assert names(identify(v2.example)) == ["NetNTLMv2"]
+
+
+def test_cisco_type_7_is_recognised_by_decoding_it():
+    assert possible(identify("0822455D0A16")) == ["Cisco type 7"]  # "cisco"
+    # The same shape with bytes that do not decode to text is not type 7.
+    assert "Cisco type 7" not in names(identify("08FFFFFFFFFF"))
+    assert "Cisco type 7" not in names(identify(MD5.example.upper()))
+
+
+def test_cisco_pix_needs_a_character_that_is_not_hex():
+    assert names(identify("dRRVnUmUHXOTt9nk")) == ["Cisco-PIX MD5"]
+    assert "Cisco-PIX MD5" not in names(identify("7196759210defdc0"))
+
+
+def test_oracle_11g_with_its_marker_is_pinned_and_without_it_is_a_salted_sha1():
+    marked = "S:AC5F1E62D21FD0529428B84D42E8955B0496670338445748184477378130"
+    split = "ac5f1e62d21fd0529428b84d42e8955b04966703:38445748184477378130"
+
+    assert names(identify(marked)) == ["Oracle 11g"]
+    assert possible(identify(split)) == ["sha1($pass.$salt)", "sha1($salt.$pass)", "Oracle 11g"]
+
+
+def test_pwdump_line_is_recognised_whole():
+    line = "Administrator:500:299bd128c1101fd6aad3b435b51404ee:b4b9b02e6f09a9bd760f388b67351e2b:::"
+
+    assert names(identify(line)) == ["pwdump"]
+    assert names(identify("guest:501:NO PASSWORD*********************:" + NTLM.example + ":::")) == [
+        "pwdump"
+    ]

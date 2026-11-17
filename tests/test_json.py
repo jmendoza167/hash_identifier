@@ -8,7 +8,8 @@ import pytest
 
 from hashident import terminal
 from hashident.cli import main
-from hashident.commands import crack_commands, tool_notes
+from hashident.commands import candidate_notes, crack_commands, tool_notes
+from hashident.engine import identify
 from hashident.json_output import SCHEMA_VERSION
 from hashident.models import Context
 from hashident.signatures import BCRYPT, MD5, MYSQL41, NTLM, SIGNATURES
@@ -135,13 +136,13 @@ def test_md5_record_keys_and_types(capsys):
 def test_commands_and_notes_come_from_commands_module(capsys, sig):
     _, out, _ = run(capsys, "--json", sig.example)
 
-    by_name = {s.name: s for s in SIGNATURES}
+    expected = {c.signature.name: c for c in identify(sig.example).candidates}
     for cand in json.loads(out)["candidates"]:
-        listed = by_name[cand["format"]]
-        assert cand["commands"] == list(crack_commands(listed))
-        assert cand["notes"] == list(tool_notes(listed, sig.example))
-        assert cand["hashcat_mode"] == listed.hashcat_mode
-        assert cand["john_format"] == listed.john_format
+        listed = expected[cand["format"]]
+        assert cand["commands"] == list(crack_commands(listed.signature))
+        assert cand["notes"] == list(candidate_notes(listed, sig.example))
+        assert cand["hashcat_mode"] == listed.signature.hashcat_mode
+        assert cand["john_format"] == listed.signature.john_format
 
 
 def test_mysql_record_includes_tool_note(capsys):
@@ -273,3 +274,17 @@ def test_help_documents_json_and_verbose(capsys):
     for key in TOP_KEYS + CANDIDATE_KEYS + TIP_KEYS:
         assert key in text, key
     assert all(len(line) <= 80 for line in out.splitlines())
+
+
+# --- 0x in front of hex -----------------------------------------------------------------
+
+
+def test_notes_say_to_remove_a_leading_0x(capsys):
+    _, out, _ = run(capsys, "--json", "0x" + MD5.example)
+
+    record = json.loads(out)
+    assert record["input"] == "0x" + MD5.example
+    md5 = record["candidates"][0]
+    assert md5["format"] == "MD5"
+    assert md5["notes"] == ["Remove the leading '0x' before giving the hash to hashcat or john."]
+    assert "ignoring the 0x in front" in md5["reasons"]

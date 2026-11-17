@@ -216,7 +216,15 @@ def test_crypt_prefixes_do_not_cross_match():
 # --- Registry metadata: category, tier, shape ----------------------------------
 
 from hashident.models import Category, Charset, Tier  # noqa: E402
-from hashident.signatures import application, checksums, crypt, raw, salted  # noqa: E402
+from hashident.signatures import (  # noqa: E402
+    application,
+    checksums,
+    crypt,
+    databases,
+    network,
+    raw,
+    salted,
+)
 
 
 @pytest.mark.parametrize(
@@ -255,6 +263,8 @@ def test_registry_is_the_category_modules_in_order():
         raw.SIGNATURES
         + salted.SIGNATURES
         + application.SIGNATURES
+        + databases.SIGNATURES
+        + network.SIGNATURES
         + crypt.SIGNATURES
         + checksums.SIGNATURES
     )
@@ -266,10 +276,12 @@ def test_registry_is_the_category_modules_in_order():
         (raw, Category.RAW),
         (salted, Category.SALTED),
         (application, Category.APPLICATION),
+        (databases, Category.APPLICATION),
+        (network, Category.APPLICATION),
         (crypt, Category.CRYPT),
         (checksums, Category.CHECKSUM),
     ],
-    ids=["raw", "salted", "application", "crypt", "checksums"],
+    ids=["raw", "salted", "application", "databases", "network", "crypt", "checksums"],
 )
 def test_each_module_holds_one_category(module, category):
     assert module.SIGNATURES

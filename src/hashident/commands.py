@@ -6,7 +6,7 @@ can reuse the same commands and notes.
 
 from __future__ import annotations
 
-from hashident.models import Signature
+from hashident.models import Candidate, Signature
 from hashident.signatures import MYSQL41
 
 HASH_FILE = "hash.txt"
@@ -26,6 +26,19 @@ def crack_commands(sig: Signature) -> tuple[str, ...]:
     if sig.john_format is not None:
         commands.append(f"john --format={sig.john_format} --wordlist={WORDLIST} {HASH_FILE}")
     return tuple(commands)
+
+
+def candidate_notes(cand: Candidate, value: str) -> tuple[str, ...]:
+    """Every note for one candidate of the input ``value``.
+
+    A format that matched the hex after a leading ``0x`` gets a note to
+    remove it, then its usual notes for the hex alone.
+    """
+    prefix = cand.ignored_prefix
+    if not prefix:
+        return tool_notes(cand.signature, value)
+    strip = f"Remove the leading '{prefix}' before giving the hash to hashcat or john."
+    return (strip, *tool_notes(cand.signature, value[len(prefix) :]))
 
 
 def tool_notes(sig: Signature, value: str) -> tuple[str, ...]:

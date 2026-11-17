@@ -3,9 +3,11 @@
 Pipeline for one input:
 
 1. Normalize (``Result`` strips surrounding whitespace).
-2. Match the normalized value against every signature. If nothing matches
-   and the value has whitespace inside it (a hash pasted with a line break,
-   or printed in groups), match again without that whitespace.
+2. Match the normalized value against every signature. If it is ``0x``
+   followed by hex, as databases print binary values, match the hex after
+   the ``0x`` as well. If nothing matches and the value has whitespace
+   inside it (a hash pasted with a line break, or printed in groups), match
+   again without that whitespace.
 3. Keep only the most specific kind of match (see below).
 4. Score each match: popularity, then any score adjustments
    (currently the context hint, see ``hashident.context``).
@@ -26,6 +28,12 @@ Only the most specific kind present is kept, so a prefix match wins
 outright: no lookalike of the same length is listed next to it. A format
 whose prefix or structure is optional (MySQL 4.1+ without its ``*``, a
 salted MD5 without its salt) is a SHAPE match when the input lacks it.
+
+This is also what keeps ``0x`` handling safe. An MSSQL hash starts with
+``0x0100`` or ``0x0200``, which are prefixes of its formats, so it is a
+PREFIX match and whatever the hex after ``0x`` might look like is dropped.
+Other hex with ``0x`` in front has no such prefix, so the formats for the
+bare hex (MD5 and NTLM for 32 characters) are listed too.
 
 Tiers and confidence
 --------------------
@@ -55,11 +63,13 @@ from hashident.models import Adjustment, Candidate, Confidence, Context, Result,
 from hashident.signatures import SIGNATURES
 
 WHITESPACE_REASON = "ignoring whitespace inside the input"
+HEX_PREFIX_REASON = "ignoring the 0x in front"
 
 ALSO_MATCHES_LIMIT = 3
 """How many other formats a reason names before it just counts the rest."""
 
 _HEX_RE = re.compile(r"[0-9a-fA-F]+")
+_HEX_PREFIX_RE = re.compile(r"(0[xX])([0-9a-fA-F]+)")
 
 # Modular crypt format identifiers whose first parameter is a cost factor.
 _MCF_COST_IDS = frozenset({"2a", "2b", "2y"})
@@ -76,11 +86,22 @@ class _Specificity(IntEnum):
 
 
 @dataclass(frozen=True)
+class _Match:
+    """A signature that fits, and the form of the input it fits."""
+
+    signature: Signature
+    specificity: _Specificity
+    value: str
+    ignored_prefix: str = ""
+
+
+@dataclass(frozen=True)
 class _Scored:
     signature: Signature
     tier: Tier
     score: float
     reasons: tuple[str, ...]
+    ignored_prefix: str = ""
 
 
 def identify(
@@ -113,10 +134,7 @@ def identify(
     if not matched:
         return result
 
-    scored = [
-        _score(sig, specificity, value, hint, whitespace_removed)
-        for sig, specificity in matched
-    ]
+    scored = [_score(match, hint, whitespace_removed) for match in matched]
     scored.sort(key=lambda s: (_TIER_ORDER[s.tier], -s.score, s.signature.name))
 
     candidates = tuple(_to_candidate(s, scored, value) for s in scored)
@@ -125,19 +143,29 @@ def identify(
     )
 
 
-def _match(
-    value: str, signatures: Sequence[Signature]
-) -> list[tuple[Signature, _Specificity]]:
-    """The signatures that match ``value``, keeping only the most specific kind."""
+def _match(value: str, signatures: Sequence[Signature]) -> list[_Match]:
+    """The signatures that match ``value``, keeping only the most specific kind.
+
+    For ``0x`` followed by hex, signatures that match the hex alone count too.
+    """
     matched = [
-        (sig, _specificity(sig, value, match))
+        _Match(sig, _specificity(sig, value, match), value)
         for sig in signatures
         if (match := sig.match(value)) is not None
     ]
+    prefixed = _HEX_PREFIX_RE.fullmatch(value)
+    if prefixed is not None:
+        prefix, bare = prefixed.groups()
+        as_typed = {id(found.signature) for found in matched}
+        matched += [
+            _Match(sig, _specificity(sig, bare, match), bare, ignored_prefix=prefix)
+            for sig in signatures
+            if id(sig) not in as_typed and (match := sig.match(bare)) is not None
+        ]
     if not matched:
         return []
-    strongest = max(specificity for _, specificity in matched)
-    return [(sig, specificity) for sig, specificity in matched if specificity is strongest]
+    strongest = max(found.specificity for found in matched)
+    return [found for found in matched if found.specificity is strongest]
 
 
 def _specificity(sig: Signature, value: str, match: re.Match[str]) -> _Specificity:
@@ -156,23 +184,25 @@ def _tier(sig: Signature, specificity: _Specificity) -> Tier:
     return sig.tier
 
 
-def _score(
-    sig: Signature,
-    specificity: _Specificity,
-    value: str,
-    context: Context | None,
-    whitespace_removed: bool,
-) -> _Scored:
+def _score(found: _Match, context: Context | None, whitespace_removed: bool) -> _Scored:
     """Score one matching signature: popularity plus every adjustment."""
+    sig, specificity, value = found.signature, found.specificity, found.value
     score = float(sig.popularity)
     reasons = [_shape_reason(sig, value, specificity)]
+    if found.ignored_prefix:
+        reasons.append(HEX_PREFIX_REASON)
     if whitespace_removed:
         reasons.append(WHITESPACE_REASON)
     for adj in _adjustments(sig, value, context):
         score += adj.delta
         reasons.append(adj.reason)
-    tier = _tier(sig, specificity)
-    return _Scored(signature=sig, tier=tier, score=score, reasons=tuple(reasons))
+    return _Scored(
+        signature=sig,
+        tier=_tier(sig, specificity),
+        score=score,
+        reasons=tuple(reasons),
+        ignored_prefix=found.ignored_prefix,
+    )
 
 
 def _adjustments(sig: Signature, value: str, context: Context | None) -> list[Adjustment]:
@@ -203,6 +233,7 @@ def _to_candidate(item: _Scored, ranked: Sequence[_Scored], value: str) -> Candi
         score=item.score,
         confidence=confidence,
         reasons=tuple(reasons),
+        ignored_prefix=item.ignored_prefix,
     )
 
 

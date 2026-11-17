@@ -56,7 +56,7 @@ import json
 from collections.abc import Sequence
 from typing import Any
 
-from hashident.commands import crack_commands, tool_notes
+from hashident.commands import candidate_notes, crack_commands
 from hashident.inputs import InputItem
 from hashident.models import Candidate, Result
 from hashident.tips import ContextTip
@@ -103,5 +103,5 @@ def _candidate(rank: int, cand: Candidate, value: str) -> dict[str, Any]:
         "strength_note": sig.strength_note,
         "reasons": list(cand.reasons),
         "commands": list(crack_commands(sig)),
-        "notes": list(tool_notes(sig, value)),
+        "notes": list(candidate_notes(cand, value)),
     }

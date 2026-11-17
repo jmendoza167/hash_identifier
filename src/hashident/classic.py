@@ -26,6 +26,7 @@ POSSIBLE_HEADING = "Possible Hashes:"
 LEAST_POSSIBLE_HEADING = "Least Possible Hashes:"
 NO_MATCH = f"[-] {NO_MATCH_MESSAGE}"
 WHITESPACE_NOTE = "[*] Whitespace inside the input was ignored."
+HEX_PREFIX_NOTE = "[*] Formats for the hex after '{prefix}' are included."
 
 _SECTIONS = ((Tier.POSSIBLE, POSSIBLE_HEADING), (Tier.LEAST_POSSIBLE, LEAST_POSSIBLE_HEADING))
 _MARKER = "[+]"
@@ -55,6 +56,9 @@ def format_classic(
         lines += [INPUT_LABEL + shown, ""]
     if result.whitespace_removed:
         lines += [style.muted(WHITESPACE_NOTE), ""]
+    prefix = next((c.ignored_prefix for c in result.candidates if c.ignored_prefix), "")
+    if prefix:
+        lines += [style.muted(HEX_PREFIX_NOTE.format(prefix=prefix)), ""]
 
     if not result.candidates:
         lines += [style.warning(NO_MATCH), "", *no_match_hint(shell=shell_hint)]
