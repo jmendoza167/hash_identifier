@@ -33,13 +33,40 @@ and leave the rest to you. hashident tries to answer the next questions too:
 
 ## Example
 
-One hash gets a full report:
+Each hash gets a block listing the formats it could be, best first:
 
 ```sh
 hashident 8743b52063cd84097a65d1633f5c74f5
 ```
 
 <!-- readme-test: output 8743b52063cd84097a65d1633f5c74f5 -->
+```text
+HASH: 8743b52063cd84097a65d1633f5c74f5
+
+Possible Hashes:
+[+] MD5
+[+] NTLM
+```
+
+`--show-modes` adds each format's Hashcat mode and John format:
+
+<!-- readme-test: output --show-modes b89eaac7e61417341b710b727768294d0e6a277b -->
+```text
+HASH: b89eaac7e61417341b710b727768294d0e6a277b
+
+Possible Hashes:
+[+] SHA-1                                     (hashcat 100 | john raw-sha1)
+[+] MySQL 4.1+ - MySQL5, SHA-1(SHA-1($pass))  (hashcat 300 | john mysql-sha1)
+```
+
+`-v` prints a detailed report instead, with the reasons behind each format,
+its strength and ready-to-run crack commands:
+
+```sh
+hashident -v 8743b52063cd84097a65d1633f5c74f5
+```
+
+<!-- readme-test: output -v 8743b52063cd84097a65d1633f5c74f5 -->
 ```text
 Input:   8743b52063cd84097a65d1633f5c74f5
 Length:  32 characters
@@ -72,7 +99,7 @@ Length:  32 characters
 Tip: hash from a Windows system? Re-run with --from windows (NTLM ranks first)
 ```
 
-Several hashes get a compact table, one row per value. Given a file
+`--table` prints one row per hash, which suits batches. Given a file
 `hashes.txt`:
 
 <!-- readme-test: file hashes.txt -->
@@ -87,10 +114,10 @@ not-a-hash
 ```
 
 ```sh
-hashident -f hashes.txt
+hashident --table -f hashes.txt
 ```
 
-<!-- readme-test: output -f hashes.txt -->
+<!-- readme-test: output --table -f hashes.txt -->
 ```text
 Line    Value                                       Format       Conf    Hashcat
 ------  ------------------------------------------  -----------  ------  -------
@@ -103,12 +130,14 @@ Line    Value                                       Format       Conf    Hashcat
 
 6 values: 1 MD5, 1 SHA-1, 1 bcrypt, 1 MySQL 4.1+, 1 md5crypt, 1 no match
 Tip: --from windows would change the top format for 1 of 6 values.
-Run hashident on a single value to see its full report and crack commands.
+Run hashident -v on a value to see its reasons and crack commands.
 ```
 
 The first column is the line number in the file, so you can find each value
 again. Long values are shortened in the middle to keep every line within 80
-columns. In a terminal, confidence levels and strength ratings are colored.
+columns. In a terminal, output is colored and starts with a banner;
+`--no-banner` hides it. Run `hashident` with no arguments for an interactive
+`HASH:` prompt.
 
 ## Installation
 

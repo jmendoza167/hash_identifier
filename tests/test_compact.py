@@ -1,4 +1,4 @@
-"""Tests for the compact multi-value view and the exit status."""
+"""Tests for the compact table (--table) and the exit status."""
 
 import io
 import sys
@@ -23,7 +23,7 @@ from hashident.signatures import (
 from hashident.style import ANSI, strip_ansi, visible_len
 from hashident.tips import ContextTip, context_tips
 
-NOTE = "Run hashident on a single value to see its full report and crack commands."
+NOTE = "Run hashident -v on a value to see its reasons and crack commands."
 
 
 class FakeStdin(io.TextIOWrapper):
@@ -35,7 +35,7 @@ class FakeStdin(io.TextIOWrapper):
 
 
 def run(capsys, *argv):
-    code = main(list(argv))
+    code = main(["--table", *argv])
     captured = capsys.readouterr()
     return code, captured.out, captured.err
 
@@ -297,22 +297,11 @@ def test_help_documents_exit_status(capsys):
     lines = capsys.readouterr().out.splitlines()
     start = lines.index("Exit status:")
     assert lines[start + 1 : start + 5] == [
-        "  0  every hash matched a known format",
+        "  0  every hash matched a known format (also after interactive mode)",
         "  1  none did",
         "  3  some did and some did not",
         "  2  invalid arguments, or input that cannot be read or has no hashes",
     ]
-
-
-# --- Single value unchanged ------------------------------------------------------------
-
-
-@pytest.mark.parametrize("value", [MD5.example, BCRYPT.example, "hello world", ""])
-def test_single_value_still_prints_the_full_report(capsys, value):
-    _, out, _ = run(capsys, value)
-
-    result = identify(value)
-    assert out == format_result(result, tips=context_tips(result)) + "\n"
 
 
 # --- Width and color ---------------------------------------------------------------------

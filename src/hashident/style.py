@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 
-from hashident.models import Confidence, Strength
+from hashident.models import Confidence, Strength, Tier
 
 _RESET = "\x1b[0m"
 _BOLD, _DIM = "1", "2"
@@ -22,6 +22,7 @@ _RED, _GREEN, _YELLOW, _CYAN = "31", "32", "33", "36"
 
 _CONFIDENCE = {Confidence.HIGH: _GREEN, Confidence.MEDIUM: _YELLOW, Confidence.LOW: _DIM}
 _STRENGTH = {Strength.WEAK: _RED, Strength.MODERATE: _YELLOW, Strength.STRONG: _GREEN}
+_TIER = {Tier.POSSIBLE: _GREEN, Tier.LEAST_POSSIBLE: _DIM}
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -49,6 +50,15 @@ class Styler:
 
     def name(self, text: str) -> str:
         return self._paint(text, _BOLD)
+
+    def heading(self, text: str) -> str:
+        return self._paint(text, _BOLD)
+
+    def banner(self, text: str) -> str:
+        return self._paint(text, _CYAN)
+
+    def marker(self, text: str, tier: Tier) -> str:
+        return self._paint(text, _TIER[tier])
 
     def command(self, text: str) -> str:
         return self._paint(text, _CYAN)

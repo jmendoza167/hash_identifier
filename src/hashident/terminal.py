@@ -37,6 +37,11 @@ def use_color(mode: str, stream: TextIO, environ: Mapping[str, str]) -> bool:
     return _isatty(stream) and enable_windows_ansi(stream)
 
 
+def is_terminal(stream: TextIO) -> bool:
+    """Whether ``stream`` is a terminal, as opposed to a pipe or a file."""
+    return _isatty(stream)
+
+
 def _isatty(stream: TextIO) -> bool:
     try:
         return stream.isatty()

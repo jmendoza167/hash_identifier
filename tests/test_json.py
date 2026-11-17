@@ -17,8 +17,10 @@ TOP_KEYS = ["schema_version", "input", "source", "position", "context", "matched
 CANDIDATE_KEYS = [
     "rank",
     "format",
+    "category",
     "score",
     "confidence",
+    "tier",
     "hashcat_mode",
     "john_format",
     "strength",
@@ -112,6 +114,8 @@ def test_md5_record_keys_and_types(capsys):
         assert cand["rank"] == rank
         assert isinstance(cand["score"], float)
         assert cand["confidence"] in {"high", "medium", "low"}
+        assert cand["tier"] == "possible"
+        assert cand["category"] == "raw"
         assert isinstance(cand["hashcat_mode"], int)
         assert isinstance(cand["john_format"], str)
         assert cand["strength"] in {"weak", "moderate", "strong"}

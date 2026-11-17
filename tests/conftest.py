@@ -24,3 +24,14 @@ RARE32 = Signature(
 def tiered_signatures() -> tuple[Signature, ...]:
     """MD5 and NTLM (possible) plus a made-up least-possible 32-hex format."""
     return (MD5, NTLM, RARE32)
+
+
+@pytest.fixture
+def tiered_cli(monkeypatch, tiered_signatures):
+    """Make the command line identify hashes against ``tiered_signatures``."""
+    import functools
+
+    from hashident import cli
+    from hashident.engine import identify
+
+    monkeypatch.setattr(cli, "identify", functools.partial(identify, signatures=tiered_signatures))

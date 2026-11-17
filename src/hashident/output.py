@@ -1,7 +1,8 @@
 """Plain-text rendering of results for the terminal.
 
-``format_result`` is the full report for one value; ``CompactTable`` is the
-one-row-per-value view used when there are several.
+``format_result`` is the detailed report for one value (-v) and
+``CompactTable`` is the one-row-per-value view (--table). The default view,
+one block per value, lives in ``hashident.classic``.
 
 Output is pure ASCII and every line fits in ``WIDTH`` columns, so it renders
 correctly in old Windows consoles. Commands are never wrapped, so they stay
@@ -54,7 +55,7 @@ def format_result(
     """Render ``result`` (and any re-run tips) as text, without a trailing newline.
 
     LOW-confidence candidates get a detail block only with ``show_low``
-    (--verbose); otherwise they appear in the table alone.
+    (-vv); otherwise they appear in the table alone.
     """
     lines = _header(result)
     lines.append("")
@@ -78,7 +79,7 @@ def format_result(
                 f"{_TIP_QUESTIONS[tip.context]} Re-run with --from "
                 f"{tip.context.value} ({tip.top.name} ranks first)"
             )
-            lines += [style.tip(line) for line in _wrap("", "Tip: ", text)]
+            lines += [style.tip(line) for line in wrap("", "Tip: ", text)]
     return "\n".join(lines)
 
 
@@ -88,7 +89,7 @@ def _header(result: Result) -> list[str]:
         lines = [_label("Input") + "(empty)"]
     else:
         # Escaping control characters also stops input from injecting ANSI codes.
-        shown = _shorten(_printable(value), MAX_INPUT_CHARS)
+        shown = shorten(printable(value), MAX_INPUT_CHARS)
         noun = "character" if len(value) == 1 else "characters"
         lines = [_label("Input") + shown, _label("Length") + f"{len(value)} {noun}"]
     if result.context is not None:
@@ -110,7 +111,7 @@ def _label(name: str) -> str:
     return f"{name}:".ljust(_LABEL_WIDTH)
 
 
-def _printable(value: str) -> str:
+def printable(value: str) -> str:
     """Escape anything that is not printable ASCII, e.g. '\\x1b' or '\\xe9'."""
     return "".join(
         ch if " " <= ch <= "~" else ch.encode("unicode_escape").decode("ascii")
@@ -118,7 +119,7 @@ def _printable(value: str) -> str:
     )
 
 
-def _shorten(text: str, limit: int) -> str:
+def shorten(text: str, limit: int) -> str:
     """Fit ``text`` in ``limit`` characters by eliding its middle with '...'.
 
     Both ends are kept because hashes are usually told apart by their
@@ -186,38 +187,52 @@ def _details(rank: int, cand: Candidate, value: str, style: Styler) -> list[str]
 
     lines.append(f"{_INDENT}Reasons:")
     for reason in cand.reasons:
-        lines += _wrap(_INDENT + "  ", "- ", reason)
+        lines += wrap(_INDENT + "  ", "- ", reason)
 
     label = f"Strength: {sig.strength.name} - "
     styled_label = f"Strength: {style.strength(sig.strength.name, sig.strength)} - "
-    lines += _wrap(_INDENT, label, sig.strength_note, styled_label)
+    lines += wrap(_INDENT, label, sig.strength_note, styled_label)
 
     commands = crack_commands(sig)
     if commands:
         lines.append(f"{_INDENT}Crack it (save the hash to {HASH_FILE} first):")
         lines += [f"{_INDENT}  {style.command(cmd)}" for cmd in commands]
     for note in tool_notes(sig, value):
-        lines += _wrap(_INDENT, "Note: ", note)
+        lines += wrap(_INDENT, "Note: ", note)
     return lines
 
 
+NO_MATCH_MESSAGE = "No known hash format matched this input."
+
+
+def no_match_hint(*, shell: bool = True) -> list[str]:
+    """What to check when nothing matched; ``shell`` adds the quoting advice."""
+    text = (
+        "check for extra characters (quotes, spaces, a 'user:' prefix) "
+        "or a truncated copy."
+    )
+    if shell:
+        text += (
+            " Hashes containing $ must be wrapped in single quotes, "
+            "or the shell changes them."
+        )
+    return wrap("", "Hint: ", text)
+
+
 def _no_match(style: Styler) -> list[str]:
-    known = ", ".join(sig.name for sig in SIGNATURES)
     return [
-        style.warning("No known hash format matched this input."),
+        style.warning(NO_MATCH_MESSAGE),
         "",
-        *_wrap(
+        *no_match_hint(),
+        *wrap(
             "",
-            "Hint: ",
-            "check for extra characters (quotes, spaces, a 'user:' prefix) "
-            "or a truncated copy. Hashes containing $ must be wrapped in single "
-            "quotes, or the shell changes them.",
+            "Known formats: ",
+            f"{len(SIGNATURES)}, listed under Supported formats in the README.",
         ),
-        *_wrap("", "Known formats: ", f"{known}."),
     ]
 
 
-def _wrap(indent: str, label: str, text: str, styled_label: str | None = None) -> list[str]:
+def wrap(indent: str, label: str, text: str, styled_label: str | None = None) -> list[str]:
     """Wrap ``indent + label + text``; continuation lines align after ``label``.
 
     Wrapping is computed on the plain ``label``; ``styled_label`` (the same
@@ -247,7 +262,7 @@ class Positions(Enum):
 
 
 NO_MATCH = "no match"
-COMPACT_NOTE = "Run hashident on a single value to see its full report and crack commands."
+COMPACT_NOTE = "Run hashident -v on a value to see its reasons and crack commands."
 
 # Fixed widths, so rows can be printed as values arrive instead of after
 # the whole input has been read. Position widths fit 6-digit line numbers;
@@ -305,7 +320,7 @@ class CompactTable:
         overflow = max(len(position) - widths[0], 0)
         widths[0] += overflow
         widths[1] = max(widths[1] - overflow, len("a...b"))
-        shown = _shorten(_printable(result.normalized), widths[1]) or "(empty)"
+        shown = shorten(printable(result.normalized), widths[1]) or "(empty)"
 
         best = result.best
         if best is None:
@@ -338,7 +353,7 @@ class CompactTable:
         noun = "value" if self.total == 1 else "values"
         text = ", ".join(c.replace(" ", _NBSP) for c in counts)
         lines += [
-            line.replace(_NBSP, " ") for line in _wrap("", f"{self.total} {noun}: ", text)
+            line.replace(_NBSP, " ") for line in wrap("", f"{self.total} {noun}: ", text)
         ]
         if self._tip_contexts:
             names = [c.value for c in Context if c in self._tip_contexts]
@@ -347,7 +362,7 @@ class CompactTable:
                 f"--from {choices} would change the top format for "
                 f"{self._tipped} of {self.total} {noun}."
             )
-            lines += [style.tip(line) for line in _wrap("", "Tip: ", text)]
+            lines += [style.tip(line) for line in wrap("", "Tip: ", text)]
         lines.append(style.muted(COMPACT_NOTE))
         return lines
 

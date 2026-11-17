@@ -70,7 +70,9 @@ jobs:
             echo "::error::hashident on the MD5 example exited with $md5_status, expected 0"
             exit 1
           fi
-          if ! grep -q "^1  MD5 " "$RUNNER_TEMP/md5.txt"; then
+          # The first format under "Possible Hashes:" must be MD5. [[:space:]]*
+          # allows the carriage return that Windows adds to each line.
+          if ! grep -A1 "^Possible Hashes:" "$RUNNER_TEMP/md5.txt" | grep -qE '^\[\+\] MD5[[:space:]]*$'; then
             echo "::error::MD5 is not the top candidate for the MD5 example"
             exit 1
           fi
@@ -132,7 +134,7 @@ jobs:
             echo "::error::the installed wheel exited with $status on the MD5 example, expected 0"
             exit 1
           fi
-          if ! grep -q "^1  MD5 " md5.txt; then
+          if ! grep -A1 "^Possible Hashes:" md5.txt | grep -qE '^\[\+\] MD5[[:space:]]*$'; then
             echo "::error::the installed wheel did not rank MD5 first for the MD5 example"
             exit 1
           fi

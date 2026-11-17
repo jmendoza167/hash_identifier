@@ -1,8 +1,5 @@
 """Smoke tests for the hashident command-line interface."""
 
-import io
-import sys
-
 import pytest
 
 from hashident import __version__
@@ -19,26 +16,15 @@ def test_version_prints_package_version_and_exits_zero(capsys):
     assert out.strip() == f"hashident {__version__}"
 
 
-class _Terminal(io.StringIO):
-    def isatty(self):
-        return True
-
-
-def test_no_arguments_prints_help_and_returns_zero(capsys, monkeypatch):
-    # Help is shown only when stdin is a terminal; piped stdin is read instead
-    # (see test_inputs.py), and under pytest stdin is not a terminal.
-    monkeypatch.setattr(sys, "stdin", _Terminal())
-
-    # Pass [] explicitly: None would make argparse read pytest's own sys.argv.
-    assert main([]) == 0
+def test_md5_hash_lists_md5_then_ntlm_and_returns_zero(capsys):
+    assert main(["8743b52063cd84097a65d1633f5c74f5"]) == 0
 
     out = capsys.readouterr().out
-    assert out.startswith("usage: hashident")
-    assert "--version" in out
+    assert "Possible Hashes:\n[+] MD5\n[+] NTLM\n" in out
 
 
-def test_md5_hash_prints_ranked_table_and_returns_zero(capsys):
-    assert main(["8743b52063cd84097a65d1633f5c74f5"]) == 0
+def test_verbose_md5_hash_prints_ranked_table_and_returns_zero(capsys):
+    assert main(["-v", "8743b52063cd84097a65d1633f5c74f5"]) == 0
 
     out = capsys.readouterr().out
     assert "1  MD5" in out
@@ -47,7 +33,7 @@ def test_md5_hash_prints_ranked_table_and_returns_zero(capsys):
 
 
 def test_bcrypt_hash_prints_high_candidate(capsys):
-    assert main(["$2a$05$LhayLxezLhK1LhWvKxCyLOj0j1u.Kj0jZ0pEmm134uzrQlFvQJLF6"]) == 0
+    assert main(["-v", "$2a$05$LhayLxezLhK1LhWvKxCyLOj0j1u.Kj0jZ0pEmm134uzrQlFvQJLF6"]) == 0
 
     out = capsys.readouterr().out
     assert "1  bcrypt  HIGH" in out
@@ -55,7 +41,7 @@ def test_bcrypt_hash_prints_high_candidate(capsys):
 
 
 def test_mysql_hash_prints_asterisk_note(capsys):
-    assert main(["*FCF7C1B8749CF99D88E5F34271D636178FB5D130"]) == 0
+    assert main(["-v", "*FCF7C1B8749CF99D88E5F34271D636178FB5D130"]) == 0
 
     out = " ".join(capsys.readouterr().out.split())
     assert "save the hash without the leading '*'" in out
@@ -89,7 +75,7 @@ BCRYPT_HASH = "$2a$05$LhayLxezLhK1LhWvKxCyLOj0j1u.Kj0jZ0pEmm134uzrQlFvQJLF6"
 
 
 def test_from_windows_ranks_ntlm_first_and_shows_context(capsys):
-    assert main(["--from", "windows", MD5_HASH]) == 0
+    assert main(["-v", "--from", "windows", MD5_HASH]) == 0
 
     lines = capsys.readouterr().out.splitlines()
     assert "Context: windows" in lines[:4]
@@ -98,12 +84,17 @@ def test_from_windows_ranks_ntlm_first_and_shows_context(capsys):
 
 
 def test_from_is_case_insensitive(capsys):
-    assert main(["--from", "Windows", MD5_HASH]) == 0
+    assert main(["-v", "--from", "Windows", MD5_HASH]) == 0
     assert "Context: windows" in capsys.readouterr().out
 
 
+def test_from_windows_lists_ntlm_first_in_the_default_view(capsys):
+    assert main(["--from", "windows", MD5_HASH]) == 0
+    assert "Possible Hashes:\n[+] NTLM\n[+] MD5\n" in capsys.readouterr().out
+
+
 def test_md5_without_from_suggests_windows(capsys):
-    main([MD5_HASH])
+    main(["-v", MD5_HASH])
 
     out = capsys.readouterr().out
     assert "Re-run with --from windows (NTLM ranks first)" in out
@@ -112,12 +103,12 @@ def test_md5_without_from_suggests_windows(capsys):
 
 def test_tip_disappears_when_from_is_given(capsys):
     for context in Context:
-        main(["--from", context.value, MD5_HASH])
+        main(["-v", "--from", context.value, MD5_HASH])
         assert "Tip:" not in capsys.readouterr().out, context
 
 
 def test_bcrypt_shows_no_tips(capsys):
-    main([BCRYPT_HASH])
+    main(["-v", BCRYPT_HASH])
     assert "Tip:" not in capsys.readouterr().out
 
 
@@ -135,9 +126,10 @@ def test_invalid_from_exits_2_and_lists_valid_options(capsys):
 
 @pytest.mark.parametrize("sig", SIGNATURES, ids=lambda s: s.name)
 @pytest.mark.parametrize("context", [None, *(c.value for c in Context)])
-def test_cli_output_fits_80_columns_and_is_ascii(capsys, sig, context):
+@pytest.mark.parametrize("view", [[], ["--show-modes"], ["-v"], ["-vv"], ["--table"]], ids=str)
+def test_cli_output_fits_80_columns_and_is_ascii(capsys, sig, context, view):
     argv = [sig.example] if context is None else ["--from", context, sig.example]
-    main(argv)
+    main([*view, *argv])
 
     out = capsys.readouterr().out
     assert out.isascii()

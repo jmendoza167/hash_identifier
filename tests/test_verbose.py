@@ -1,4 +1,4 @@
-"""Tests for -v/--verbose: full reports, including low-confidence details."""
+"""Tests for -v/--verbose: the detailed report for every value."""
 
 import pytest
 
@@ -16,7 +16,7 @@ def run(capsys, *argv):
     return code, capsys.readouterr().out
 
 
-def full(value, context=None, show_low=True):
+def full(value, context=None, show_low=False):
     result = identify(value, context)
     return format_result(result, tips=context_tips(result), show_low=show_low)
 
@@ -47,26 +47,6 @@ def test_low_detail_blocks_are_hidden_without_show_low(tiered_signatures):
 
     assert "3. Rare-128" not in out
     assert "Low-confidence candidates are shown in the table only." in out
-
-
-@pytest.mark.parametrize("flag", ["-v", "--verbose"])
-def test_verbose_flag_asks_for_low_confidence_details(capsys, flag):
-    _, out = run(capsys, flag, MD5.example)
-
-    assert out == full(MD5.example, show_low=True) + "\n"
-
-
-def test_one_value_without_low_candidates_is_the_same_as_default(capsys):
-    _, verbose = run(capsys, "-v", BCRYPT.example)
-    _, default = run(capsys, BCRYPT.example)
-
-    assert verbose == default
-
-
-def test_default_one_value_does_not_ask_for_low_confidence_details(capsys):
-    _, out = run(capsys, MD5.example)
-
-    assert out == full(MD5.example, show_low=False) + "\n"
 
 
 # --- Several values ---------------------------------------------------------------------
@@ -112,13 +92,7 @@ def test_no_summary_or_compact_note_in_verbose_mode(capsys):
     _, out = run(capsys, "-v", MD5.example, BCRYPT.example)
 
     assert "2 values:" not in out
-    assert "Run hashident on a single value" not in out
-
-
-def test_default_several_values_still_use_compact_table(capsys):
-    _, out = run(capsys, MD5.example, BCRYPT.example)
-
-    assert out.splitlines()[0].split() == ["Arg", "Value", "Format", "Conf", "Hashcat"]
+    assert "Run hashident -v on a value" not in out
 
 
 # --- Exit codes and layout ----------------------------------------------------------------
@@ -134,7 +108,7 @@ def test_default_several_values_still_use_compact_table(capsys):
         [MD5.example, "hello world"],
     ],
 )
-def test_exit_codes_match_default_mode(capsys, argv):
+def test_exit_codes_match_default_view(capsys, argv):
     default_code, _ = run(capsys, *argv)
     verbose_code, _ = run(capsys, "-v", *argv)
 
@@ -161,4 +135,4 @@ def test_help_documents_verbose(capsys):
 
     text = " ".join(capsys.readouterr().out.split())
     assert "-v, --verbose" in text
-    assert "low-confidence" in text
+    assert "a detailed report instead" in text

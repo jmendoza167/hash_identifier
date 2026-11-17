@@ -6,11 +6,10 @@ import sys
 
 import pytest
 
+from hashident.classic import format_classic
 from hashident.cli import main
 from hashident.engine import identify
 from hashident.inputs import InputError, InputItem, gather
-from hashident.output import format_result
-from hashident.tips import context_tips
 
 MD5_HASH = "8743b52063cd84097a65d1633f5c74f5"
 SHA1_HASH = "b89eaac7e61417341b710b727768294d0e6a277b"
@@ -30,10 +29,9 @@ class FakeStdin(io.TextIOWrapper):
         return self._tty
 
 
-def _report(value: str) -> str:
-    """What the CLI printed for a single value before multiple inputs existed."""
-    result = identify(value, context=None)
-    return format_result(result, tips=context_tips(result)) + "\n"
+def _block(value: str) -> str:
+    """What the CLI prints for a single value."""
+    return format_classic(identify(value, context=None)) + "\n"
 
 
 # --- gather(): positional arguments -------------------------------------------
@@ -244,16 +242,16 @@ def test_text_only_stdin_replacement_is_supported(monkeypatch):
 # --- CLI ----------------------------------------------------------------------
 
 
-def test_single_value_output_is_unchanged(capsys):
+def test_single_value_prints_one_block(capsys):
     assert main([MD5_HASH]) == 0
 
-    assert capsys.readouterr().out == _report(MD5_HASH)
+    assert capsys.readouterr().out == _block(MD5_HASH)
 
 
 def test_single_unmatched_value_still_returns_one(capsys):
     assert main(["hello world"]) == 1
 
-    assert capsys.readouterr().out == _report("hello world")
+    assert capsys.readouterr().out == _block("hello world")
 
 
 def _compact_values(out: str) -> list[str]:
@@ -263,7 +261,7 @@ def _compact_values(out: str) -> list[str]:
 
 
 def test_several_arguments_are_all_reported_in_order(capsys):
-    assert main([MD5_HASH, NTLM_HASH]) == 0
+    assert main(["--table", MD5_HASH, NTLM_HASH]) == 0
 
     assert _compact_values(capsys.readouterr().out) == [MD5_HASH, NTLM_HASH]
 
@@ -273,14 +271,14 @@ def test_cli_reads_file_option(capsys, tmp_path):
     path.write_bytes(f"# two hashes\r\n{MD5_HASH}\r\n\r\n{NTLM_HASH}\r\n".encode())
 
     for flag in ("-f", "--file"):
-        assert main([flag, str(path)]) == 0
+        assert main(["--table", flag, str(path)]) == 0
         assert _compact_values(capsys.readouterr().out) == [MD5_HASH, NTLM_HASH]
 
 
 def test_cli_reads_piped_stdin(capsys, monkeypatch):
     monkeypatch.setattr(sys, "stdin", FakeStdin(f"{MD5_HASH}\n{NTLM_HASH}\n".encode()))
 
-    assert main([]) == 0
+    assert main(["--table"]) == 0
 
     assert _compact_values(capsys.readouterr().out) == [MD5_HASH, NTLM_HASH]
 
@@ -290,17 +288,7 @@ def test_cli_dash_file_reads_stdin(capsys, monkeypatch):
 
     assert main(["-f", "-"]) == 0
 
-    assert capsys.readouterr().out == _report(MD5_HASH)
-
-
-def test_cli_no_arguments_on_a_terminal_prints_help(capsys, monkeypatch):
-    monkeypatch.setattr(sys, "stdin", FakeStdin(tty=True))
-
-    assert main([]) == 0
-
-    out = capsys.readouterr().out
-    assert out.startswith("usage: hashident")
-    assert "--file" in out
+    assert capsys.readouterr().out == _block(MD5_HASH)
 
 
 def test_cli_missing_file_exits_2_with_short_error(capsys, tmp_path):

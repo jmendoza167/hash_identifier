@@ -31,8 +31,12 @@ Each candidate:
 ============================  ====================================================
 ``rank``: int                 1 for the best candidate
 ``format``: string            format name, e.g. "MD5", "bcrypt", "MySQL 4.1+"
+``category``: string          "checksum", "raw", "salted", "application" or
+                              "crypt"
 ``score``: number             ranking score: popularity plus any --from boost
 ``confidence``: string        "high", "medium" or "low"
+``tier``: string              "possible" or "least_possible": the list the
+                              format is printed under in the default view
 ``hashcat_mode``: int | null  hashcat -m value; null if hashcat lacks the format
 ``john_format``: string|null  John the Ripper --format value; null if it lacks it
 ``strength``: string          "weak", "moderate" or "strong"
@@ -89,8 +93,10 @@ def _candidate(rank: int, cand: Candidate, value: str) -> dict[str, Any]:
     return {
         "rank": rank,
         "format": sig.name,
+        "category": sig.category.value,
         "score": float(cand.score),
         "confidence": cand.confidence.value,
+        "tier": cand.tier.value,
         "hashcat_mode": sig.hashcat_mode,
         "john_format": sig.john_format,
         "strength": sig.strength.value,
